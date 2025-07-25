@@ -1,0 +1,21 @@
+<Window x:Class="PipeWiseClient.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PipeWise - ETL Client" Height="350" Width="600">
+    <Grid Margin="10">
+        <StackPanel>
+            <TextBlock Text="בחר קובץ מקור" Margin="0,0,0,5"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBox x:Name="FilePathTextBox" Width="400" IsReadOnly="True"/>
+                <Button Content="Browse" Click="BrowseFile_Click" Margin="5,0,0,0"/>
+            </StackPanel>
+
+            <TextBlock Text="קונפיגורציה (JSON):" Margin="0,20,0,5"/>
+            <TextBox x:Name="ConfigTextBox" Height="100" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+
+            <Button Content="הרץ Pipeline" Margin="0,10,0,0" Click="RunPipeline_Click"/>
+
+            <TextBlock x:Name="ResultTextBlock" Margin="0,10,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+    </Grid>
+</Window>
