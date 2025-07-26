@@ -1,0 +1,54 @@
+# Build results
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VS Code settings
+.vscode/
+
+# Windows image thumbnails
+Thumbs.db
+ehthumbs.db
+
+# Backup & temporary files
+*.bak
+*.tmp
+*~
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# Logs
+*.log
+
+# Publish folder (optional)
+publish/
+
+# Configuration files
+appsettings.*.json
+
+# Local test artifacts
+TestResults/
+*.VisualState.xml
+
+# dotenv or secrets
+.env
+secrets.json
+
+# Generated files
+Generated_Code/
+*.g.i.cs
+*.g.cs
+*.i.cs
