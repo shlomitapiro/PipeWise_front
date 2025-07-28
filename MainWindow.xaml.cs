@@ -99,6 +99,7 @@ namespace PipeWiseClient
         {
             ColumnsPanel.Children.Clear();
             NoFileMessageTextBlock.Visibility = Visibility.Collapsed;
+            GlobalOperationsPanel.Visibility = Visibility.Visible;
             ColumnsPanel.Visibility = Visibility.Visible;
 
             foreach (string columnName in _columnNames)
@@ -109,6 +110,10 @@ namespace PipeWiseClient
                 // אתחול הגדרות עמודה
                 _columnSettings[columnName] = new ColumnSettings();
             }
+            
+            // אתחול הגדרות גלובליות
+            if (!_columnSettings.ContainsKey("global"))
+                _columnSettings["global"] = new ColumnSettings();
         }
 
         private Border CreateColumnPanel(string columnName)
@@ -136,16 +141,15 @@ namespace PipeWiseClient
             };
             mainPanel.Children.Add(header);
 
-            // פאנל פעולות ניקוי
-            var cleaningGroup = CreateOperationGroup("🧹 פעולות ניקוי", new[]
+            // פאנל פעולות ניקוי לפי עמודה
+            var cleaningGroup = CreateOperationGroup("🧹 ניקוי עמודה", new[]
             {
-                ("הסר שורות ריקות", "remove_empty_rows"),
+                ("הסר אם ערך חסר או null", "remove_if_missing"),
+                ("הסר כפילויות לפי עמודה", "remove_duplicates_by_field"),
                 ("הסר רווחים מיותרים", "strip_whitespace"),
-                ("הסר כפילויות", "remove_duplicates"),
-                ("הסר ערך חסר או null", "remove_if_missing"),
-                ("החלף ערכי null", "replace_nulls"),
                 ("הסר אם שווה לערך", "remove_if_equals"),
                 ("הסר ערכים לא תקינים", "remove_if_invalid"),
+                ("החלף ערכי null", "replace_nulls"),
                 ("מחק עמודה זו", "drop_columns")
             }, columnName, "cleaning");
             mainPanel.Children.Add(cleaningGroup);
@@ -193,6 +197,36 @@ namespace PipeWiseClient
 
             groupBox.Content = panel;
             return groupBox;
+        }
+
+        private void GlobalOperationCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            var checkBox = sender as CheckBox;
+            var tagParts = checkBox.Tag.ToString().Split('|');
+            var scope = tagParts[0]; // "global"
+            var category = tagParts[1]; // "cleaning"
+            var operation = tagParts[2]; // "remove_duplicates", etc.
+
+            if (!_columnSettings.ContainsKey("global"))
+                _columnSettings["global"] = new ColumnSettings();
+
+            var settings = _columnSettings["global"];
+
+            if (checkBox.IsChecked == true)
+            {
+                System.Diagnostics.Debug.WriteLine($"Added global operation: {operation}");
+                
+                if (!settings.Operations.ContainsKey(category))
+                    settings.Operations[category] = new List<string>();
+                
+                if (!settings.Operations[category].Contains(operation))
+                    settings.Operations[category].Add(operation);
+            }
+            else
+            {
+                if (settings.Operations.ContainsKey(category))
+                    settings.Operations[category].Remove(operation);
+            }
         }
 
         private void OperationCheckBox_Changed(object sender, RoutedEventArgs e)
@@ -388,7 +422,7 @@ namespace PipeWiseClient
 
                 var config = BuildPipelineConfig();
                 
-                // דיבוג - בדוק שהקונפיגורציה נבנתה נכון
+                // בדוק שהקונפיגורציה נבנתה נכון
                 if (config == null)
                 {
                     ResultTextBlock.Text = "❌ שגיאה: לא ניתן לבנות קונפיגורציה";
@@ -436,141 +470,122 @@ namespace PipeWiseClient
 
                 // פעולות גלובליות (על כל הנתונים)
                 var globalOperations = new List<Dictionary<string, object>>();
-                var fieldBasedOperations = new Dictionary<string, List<Dictionary<string, object>>>();
 
-                // איסוף כל הפעולות וסיווגן
-                foreach (var column in _columnSettings)
+                // טיפול בפעולות גלובליות
+                if (_columnSettings.ContainsKey("global"))
                 {
-                    var columnName = column.Key;
-                    var settings = column.Value;
+                    var globalSettings = _columnSettings["global"];
+                    foreach (var category in globalSettings.Operations)
+                    {
+                        foreach (var operation in category.Value)
+                        {
+                            globalOperations.Add(new Dictionary<string, object>
+                            {
+                                ["action"] = operation
+                            });
+                        }
+                    }
+                }
+
+                // איסוף פעולות לפי עמודה
+                var cleaningOps = new List<Dictionary<string, object>>();
+                var transformOps = new List<Dictionary<string, object>>();
+
+                foreach (var columnEntry in _columnSettings)
+                {
+                    var columnName = columnEntry.Key;
+                    var settings = columnEntry.Value;
+                    
+                    // דלג על הגדרות גלובליות
+                    if (columnName == "global")
+                        continue;
 
                     foreach (var category in settings.Operations)
                     {
                         foreach (var operation in category.Value)
                         {
-                            if (IsGlobalOperation(operation))
+                            var operationConfig = new Dictionary<string, object>
                             {
-                                // פעולות גלובליות - נוסיף רק פעם אחת
-                                var globalOp = new Dictionary<string, object>
-                                {
-                                    ["action"] = operation
-                                };
+                                ["action"] = operation,
+                                ["fields"] = new[] { columnName }
+                            };
 
-                                // עבור remove_if_missing, נאסף את כל השדות שנבחרו
-                                if (operation == "remove_if_missing")
+                            // הוספת קונפיגורציה מיוחדת לפעולות מסוימות
+                            if (operation == "cast_type_int")
+                            {
+                                operationConfig["action"] = "cast_type";
+                                operationConfig["field"] = columnName;
+                                operationConfig["to_type"] = "int";
+                            }
+                            else if (operation == "cast_type_float")
+                            {
+                                operationConfig["action"] = "cast_type";
+                                operationConfig["field"] = columnName;
+                                operationConfig["to_type"] = "float";
+                            }
+                            else if (operation == "replace_nulls")
+                            {
+                                operationConfig["field"] = columnName;
+                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
                                 {
-                                    var existingOp = globalOperations.FirstOrDefault(op => op["action"].ToString() == "remove_if_missing");
-                                    if (existingOp != null)
-                                    {
-                                        // הוסף לרשימת השדות הקיימת
-                                        var fields = (List<string>)existingOp["fields"];
-                                        if (!fields.Contains(columnName))
-                                            fields.Add(columnName);
-                                    }
-                                    else
-                                    {
-                                        globalOp["fields"] = new List<string> { columnName };
-                                        globalOperations.Add(globalOp);
-                                    }
+                                    operationConfig["value"] = settings.UserInputs[operation]["value"];
                                 }
                                 else
                                 {
-                                    // פעולות אחרות - הוסף רק אם לא קיים
-                                    if (!globalOperations.Any(op => op["action"].ToString() == operation))
-                                    {
-                                        globalOperations.Add(globalOp);
-                                    }
+                                    operationConfig["value"] = "";
                                 }
+                            }
+                            else if (operation == "remove_if_equals")
+                            {
+                                operationConfig["field"] = columnName;
+                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
+                                {
+                                    operationConfig["value"] = settings.UserInputs[operation]["value"];
+                                }
+                                else
+                                {
+                                    operationConfig["value"] = "";
+                                }
+                            }
+                            else if (operation == "remove_if_invalid")
+                            {
+                                operationConfig["field"] = columnName;
+                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("values"))
+                                {
+                                    operationConfig["values"] = settings.UserInputs[operation]["values"];
+                                }
+                                else
+                                {
+                                    operationConfig["values"] = new[] { "N/A", "לא ידוע" };
+                                }
+                            }
+                            else if (operation == "replace_values")
+                            {
+                                operationConfig["field"] = columnName;
+                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("mapping_json"))
+                                {
+                                    var mappingJson = settings.UserInputs[operation]["mapping_json"].ToString();
+                                    var mapping = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(mappingJson);
+                                    operationConfig["mapping"] = mapping;
+                                }
+                                else
+                                {
+                                    operationConfig["mapping"] = new Dictionary<string, string>();
+                                }
+                            }
+                            else if (operation == "drop_columns")
+                            {
+                                operationConfig["fields"] = new[] { columnName };
+                            }
+
+                            // קבע לאיזה processor זה שייך
+                            if (IsTransformOperation(operation))
+                            {
+                                transformOps.Add(operationConfig);
                             }
                             else
                             {
-                                // פעולות לפי שדה
-                                if (!fieldBasedOperations.ContainsKey(columnName))
-                                    fieldBasedOperations[columnName] = new List<Dictionary<string, object>>();
-
-                                var operationConfig = new Dictionary<string, object>
-                                {
-                                    ["action"] = operation,
-                                    ["fields"] = new[] { columnName }
-                                };
-
-                                // הוספת קונפיגורציה מיוחדת לפעולות מסוימות
-                                if (operation == "cast_type_int")
-                                {
-                                    operationConfig["action"] = "cast_type";
-                                    operationConfig["field"] = columnName;
-                                    operationConfig["to_type"] = "int";
-                                }
-                                else if (operation == "cast_type_float")
-                                {
-                                    operationConfig["action"] = "cast_type";
-                                    operationConfig["field"] = columnName;
-                                    operationConfig["to_type"] = "float";
-                                }
-                                else if (operation == "replace_nulls")
-                                {
-                                    operationConfig["field"] = columnName;
-                                    // הוסף את הערך שהמשתמש הגדיר
-                                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
-                                    {
-                                        operationConfig["value"] = settings.UserInputs[operation]["value"];
-                                    }
-                                    else
-                                    {
-                                        operationConfig["value"] = ""; // ערך ברירת מחדל
-                                    }
-                                }
-                                else if (operation == "remove_if_equals")
-                                {
-                                    operationConfig["field"] = columnName;
-                                    // הוסף את הערך שהמשתמש הגדיר
-                                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
-                                    {
-                                        operationConfig["value"] = settings.UserInputs[operation]["value"];
-                                    }
-                                    else
-                                    {
-                                        operationConfig["value"] = ""; // ערך ברירת מחדל
-                                    }
-                                }
-                                else if (operation == "remove_if_invalid")
-                                {
-                                    operationConfig["field"] = columnName;
-                                    // הוסף את הרשימה של ערכים לא תקינים
-                                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("values"))
-                                    {
-                                        operationConfig["values"] = settings.UserInputs[operation]["values"];
-                                    }
-                                    else
-                                    {
-                                        operationConfig["values"] = new[] { "N/A", "לא ידוע" }; // ערכי ברירת מחדל
-                                    }
-                                }
-                                else if (operation == "replace_values")
-                                {
-                                    operationConfig["field"] = columnName;
-                                    // הוסף את המיפוי שהמשתמש הגדיר
-                                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("mapping_json"))
-                                    {
-                                        var mappingJson = settings.UserInputs[operation]["mapping_json"].ToString();
-                                        var mapping = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(mappingJson);
-                                        operationConfig["mapping"] = mapping;
-                                    }
-                                    else
-                                    {
-                                        operationConfig["mapping"] = new Dictionary<string, string>(); // ערך ברירת מחדל
-                                    }
-                                }
-                                else if (operation == "drop_columns")
-                                {
-                                    operationConfig["fields"] = new[] { columnName };
-                                }
-
-                                fieldBasedOperations[columnName].Add(operationConfig);
-                                
-                                // דיבוג - הדפס איזה processor type נבחר
-                                var processorType = GetProcessorType(category.Key);
-                                System.Diagnostics.Debug.WriteLine($"Operation: {operation}, Category: {category.Key}, ProcessorType: {processorType}");
+                                cleaningOps.Add(operationConfig);
                             }
                         }
                     }
@@ -589,28 +604,6 @@ namespace PipeWiseClient
                     });
                 }
 
-                // הוספת processors עבור פעולות לפי שדה - מקובצים לפי processor type
-                var cleaningOps = new List<Dictionary<string, object>>();
-                var transformOps = new List<Dictionary<string, object>>();
-                
-                foreach (var fieldOps in fieldBasedOperations)
-                {
-                    foreach (var operationConfig in fieldOps.Value)
-                    {
-                        var action = operationConfig["action"].ToString();
-                        
-                        // קבע לאיזה processor זה שייך
-                        if (IsTransformOperation(action))
-                        {
-                            transformOps.Add(operationConfig);
-                        }
-                        else
-                        {
-                            cleaningOps.Add(operationConfig);
-                        }
-                    }
-                }
-                
                 // הוסף cleaner processor אם יש פעולות ניקוי
                 if (cleaningOps.Count > 0)
                 {
@@ -654,7 +647,7 @@ namespace PipeWiseClient
                 string fileExtension = Path.GetExtension(FilePathTextBox.Text)?.TrimStart('.').ToLower();
                 if (string.IsNullOrEmpty(fileExtension))
                 {
-                    fileExtension = "csv"; // ברירת מחדל
+                    fileExtension = "csv";
                 }
 
                 // יצירת קונפיגורציה
@@ -673,24 +666,6 @@ namespace PipeWiseClient
                     }
                 };
 
-                // דיבוג
-                System.Diagnostics.Debug.WriteLine("=== Generated Pipeline Config ===");
-                System.Diagnostics.Debug.WriteLine($"Global operations: {globalOperations.Count}");
-                System.Diagnostics.Debug.WriteLine($"Field-based operations: {fieldBasedOperations.Count}");
-                System.Diagnostics.Debug.WriteLine($"Total processors: {config.Processors?.Length}");
-                
-                // הדפס את כל הprocessors
-                for (int i = 0; i < config.Processors.Length; i++)
-                {
-                    var processor = config.Processors[i];
-                    System.Diagnostics.Debug.WriteLine($"Processor {i}: Type={processor.Type}");
-                    if (processor.Config != null && processor.Config.ContainsKey("operations"))
-                    {
-                        var ops = processor.Config["operations"];
-                        System.Diagnostics.Debug.WriteLine($"  Operations: {JsonConvert.SerializeObject(ops, Formatting.Indented)}");
-                    }
-                }
-
                 return config;
             }
             catch (Exception ex)
@@ -698,19 +673,6 @@ namespace PipeWiseClient
                 System.Diagnostics.Debug.WriteLine($"Error building config: {ex.Message}");
                 throw;
             }
-        }
-
-        private bool IsGlobalOperation(string operation)
-        {
-            // פעולות שצריכות לחול על כל הנתונים
-            var globalOperations = new[]
-            {
-                "remove_duplicates",
-                "remove_empty_rows"
-                // הסרתי remove_if_missing כי זה יכול להיות גם לפי שדה ספציפי
-            };
-            
-            return globalOperations.Contains(operation);
         }
 
         private bool IsTransformOperation(string operation)
@@ -726,6 +688,19 @@ namespace PipeWiseClient
             };
             
             return transformOperations.Contains(operation);
+        }
+
+        private bool IsGlobalOperation(string operation)
+        {
+            // פעולות שצריכות לחול על כל הנתונים
+            var globalOperations = new[]
+            {
+                "remove_duplicates",           // הסרת שורות זהות לחלוטין
+                "remove_empty_rows"
+                // remove_duplicates_by_field הוא לפי שדה ספציפי
+            };
+            
+            return globalOperations.Contains(operation);
         }
 
         private string GetProcessorType(string category)

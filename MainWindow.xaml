@@ -102,8 +102,41 @@
                                Margin="0,50,0,0"
                                Visibility="Visible"/>
                     
-                    <!-- פאנל עמודות (מוסתר בהתחלה) -->
+                    <!-- פאנל פעולות גלובליות -->
+                    <Border x:Name="GlobalOperationsPanel" 
+                            Style="{StaticResource ColumnPanel}"
+                            Background="#F0F8FF"
+                            Visibility="Collapsed"
+                            Margin="0,0,0,15">
+                        <StackPanel>
+                            <TextBlock Text="🌍 פעולות על כל הדאטה" 
+                                       FontWeight="Bold" 
+                                       FontSize="14" 
+                                       Foreground="#1E3A8A"
+                                       Margin="0,0,0,10"/>
+                            
+                            <WrapPanel Orientation="Horizontal">
+                                <CheckBox Content="הסר שורות ריקות לחלוטין" 
+                                          Margin="0,2,15,2"
+                                          Tag="global|cleaning|remove_empty_rows"
+                                          Checked="GlobalOperationCheckBox_Changed"
+                                          Unchecked="GlobalOperationCheckBox_Changed"/>
+                                <CheckBox Content="הסר שורות זהות" 
+                                          Margin="0,2,15,2"
+                                          Tag="global|cleaning|remove_duplicates"
+                                          Checked="GlobalOperationCheckBox_Changed"
+                                          Unchecked="GlobalOperationCheckBox_Changed"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                    
+                    <!-- פאנל עמודות -->
                     <StackPanel x:Name="ColumnsPanel" Visibility="Collapsed">
+                        <TextBlock Text="📊 פעולות לפי עמודה" 
+                                   FontWeight="Bold" 
+                                   FontSize="14" 
+                                   Foreground="#1E3A8A"
+                                   Margin="0,0,0,10"/>
                         <!-- עמודות יתווספו כאן דינמית -->
                     </StackPanel>
                 </StackPanel>
