@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using Newtonsoft.Json;
 using PipeWiseClient.Models;
+using OfficeOpenXml;
 
 namespace PipeWiseClient
 {
@@ -18,24 +19,59 @@ namespace PipeWiseClient
         private readonly HttpClient _httpClient = new HttpClient();
         private List<string> _columnNames = new List<string>();
         private Dictionary<string, ColumnSettings> _columnSettings = new Dictionary<string, ColumnSettings>();
+        private bool _isMySqlMode = false;
 
         public MainWindow()
         {
-            InitializeComponent();
+            try
+            {
+                InitializeComponent();
+                
+                // אתחול EPPlus
+                ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+                
+                // בדיקה שהUI elements קיימים
+                CheckUIElements();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"שגיאה באתחול החלון: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void CheckUIElements()
+        {
+            // בדוק אם יש לנו את ה-MySQL elements (אופציונלי)
+            var sourceTypeCombo = FindName("SourceTypeCombo") as ComboBox;
+            var mysqlPanel = FindName("MySqlPanel") as Border;
+            
+            if (sourceTypeCombo == null || mysqlPanel == null)
+            {
+                // אם אין MySQL UI, השבת את MySQL mode
+                _isMySqlMode = false;
+                System.Diagnostics.Debug.WriteLine("MySQL UI elements not found - MySQL mode disabled");
+            }
         }
 
         private void BrowseFile_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new OpenFileDialog
+            try
             {
-                Filter = "CSV Files (*.csv)|*.csv|JSON Files (*.json)|*.json|All Files (*.*)|*.*",
-                Title = "בחר קובץ נתונים"
-            };
+                var dialog = new OpenFileDialog
+                {
+                    Filter = "CSV Files (*.csv)|*.csv|JSON Files (*.json)|*.json|Excel Files (*.xlsx;*.xls)|*.xlsx;*.xls|All Files (*.*)|*.*",
+                    Title = "בחר קובץ נתונים"
+                };
 
-            if (dialog.ShowDialog() == true)
+                if (dialog.ShowDialog() == true)
+                {
+                    FilePathTextBox.Text = dialog.FileName;
+                    LoadFileColumns(dialog.FileName);
+                }
+            }
+            catch (Exception ex)
             {
-                FilePathTextBox.Text = dialog.FileName;
-                LoadFileColumns(dialog.FileName);
+                MessageBox.Show($"שגיאה בבחירת קובץ: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -47,7 +83,7 @@ namespace PipeWiseClient
                 _columnSettings.Clear();
 
                 string extension = Path.GetExtension(filePath).ToLower();
-                
+
                 if (extension == ".csv")
                 {
                     LoadCsvColumns(filePath);
@@ -56,6 +92,10 @@ namespace PipeWiseClient
                 {
                     LoadJsonColumns(filePath);
                 }
+                else if (extension == ".xlsx" || extension == ".xls")
+                {
+                    LoadExcelColumns(filePath);
+                }
                 else
                 {
                     MessageBox.Show("פורמט קובץ לא נתמך", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -63,7 +103,6 @@ namespace PipeWiseClient
                 }
 
                 FileInfoTextBlock.Text = $"נטען קובץ עם {_columnNames.Count} עמודות: {string.Join(", ", _columnNames)}";
-                
                 BuildColumnsUI();
             }
             catch (Exception ex)
@@ -74,7 +113,7 @@ namespace PipeWiseClient
 
         private void LoadCsvColumns(string filePath)
         {
-            using (var reader = new StreamReader(filePath))
+            using (var reader = new StreamReader(filePath, encoding: System.Text.Encoding.UTF8))
             {
                 var firstLine = reader.ReadLine();
                 if (!string.IsNullOrEmpty(firstLine))
@@ -86,34 +125,67 @@ namespace PipeWiseClient
 
         private void LoadJsonColumns(string filePath)
         {
-            var json = File.ReadAllText(filePath);
+            var json = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
             var data = JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(json);
-            
+
             if (data?.Count > 0)
             {
                 _columnNames = data[0].Keys.ToList();
             }
         }
 
+        private void LoadExcelColumns(string filePath)
+        {
+            try
+            {
+                using (var package = new ExcelPackage(new FileInfo(filePath)))
+                {
+                    var worksheet = package.Workbook.Worksheets.FirstOrDefault();
+                    if (worksheet == null)
+                        throw new Exception("לא נמצאו גיליונות בקובץ Excel");
+
+                    // קריאת שורת הכותרת (שורה 1)
+                    var headerRow = 1;
+                    var endColumn = worksheet.Dimension?.End.Column ?? 0;
+                    
+                    _columnNames = new List<string>();
+                    for (int col = 1; col <= endColumn; col++)
+                    {
+                        var header = worksheet.Cells[headerRow, col].Text?.Trim();
+                        if (!string.IsNullOrEmpty(header))
+                            _columnNames.Add(header);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"שגיאה בקריאת קובץ Excel: {ex.Message}");
+            }
+        }
+
         private void BuildColumnsUI()
         {
-            ColumnsPanel.Children.Clear();
-            NoFileMessageTextBlock.Visibility = Visibility.Collapsed;
-            GlobalOperationsPanel.Visibility = Visibility.Visible;
-            ColumnsPanel.Visibility = Visibility.Visible;
-
-            foreach (string columnName in _columnNames)
+            try
             {
-                var columnPanel = CreateColumnPanel(columnName);
-                ColumnsPanel.Children.Add(columnPanel);
-                
-                // אתחול הגדרות עמודה
-                _columnSettings[columnName] = new ColumnSettings();
+                ColumnsPanel.Children.Clear();
+                NoFileMessageTextBlock.Visibility = Visibility.Collapsed;
+                GlobalOperationsPanel.Visibility = Visibility.Visible;
+                ColumnsPanel.Visibility = Visibility.Visible;
+
+                foreach (string columnName in _columnNames)
+                {
+                    var columnPanel = CreateColumnPanel(columnName);
+                    ColumnsPanel.Children.Add(columnPanel);
+                    _columnSettings[columnName] = new ColumnSettings();
+                }
+
+                if (!_columnSettings.ContainsKey("global"))
+                    _columnSettings["global"] = new ColumnSettings();
             }
-            
-            // אתחול הגדרות גלובליות
-            if (!_columnSettings.ContainsKey("global"))
-                _columnSettings["global"] = new ColumnSettings();
+            catch (Exception ex)
+            {
+                MessageBox.Show($"שגיאה בבניית ממשק העמודות: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private Border CreateColumnPanel(string columnName)
@@ -129,8 +201,7 @@ namespace PipeWiseClient
             };
 
             var mainPanel = new StackPanel();
-            
-            // כותרת עמודה
+
             var header = new TextBlock
             {
                 Text = $"📊 {columnName}",
@@ -141,7 +212,6 @@ namespace PipeWiseClient
             };
             mainPanel.Children.Add(header);
 
-            // פאנל פעולות ניקוי לפי עמודה
             var cleaningGroup = CreateOperationGroup("🧹 ניקוי עמודה", new[]
             {
                 ("הסר אם ערך חסר או null", "remove_if_missing"),
@@ -154,7 +224,6 @@ namespace PipeWiseClient
             }, columnName, "cleaning");
             mainPanel.Children.Add(cleaningGroup);
 
-            // פאנל טרנספורמציות
             var transformGroup = CreateOperationGroup("🔄 טרנספורמציות", new[]
             {
                 ("הפוך לאותיות גדולות", "to_uppercase"),
@@ -188,10 +257,9 @@ namespace PipeWiseClient
                     Margin = new Thickness(0, 2, 15, 2),
                     Tag = $"{columnName}|{category}|{operationKey}"
                 };
-                
+
                 checkBox.Checked += OperationCheckBox_Changed;
                 checkBox.Unchecked += OperationCheckBox_Changed;
-                
                 panel.Children.Add(checkBox);
             }
 
@@ -201,163 +269,176 @@ namespace PipeWiseClient
 
         private void GlobalOperationCheckBox_Changed(object sender, RoutedEventArgs e)
         {
-            var checkBox = sender as CheckBox;
-            var tagParts = checkBox.Tag.ToString().Split('|');
-            var scope = tagParts[0]; // "global"
-            var category = tagParts[1]; // "cleaning"
-            var operation = tagParts[2]; // "remove_duplicates", etc.
-
-            if (!_columnSettings.ContainsKey("global"))
-                _columnSettings["global"] = new ColumnSettings();
-
-            var settings = _columnSettings["global"];
-
-            if (checkBox.IsChecked == true)
+            try
             {
-                System.Diagnostics.Debug.WriteLine($"Added global operation: {operation}");
-                
-                if (!settings.Operations.ContainsKey(category))
-                    settings.Operations[category] = new List<string>();
-                
-                if (!settings.Operations[category].Contains(operation))
-                    settings.Operations[category].Add(operation);
+                if (sender is not CheckBox checkBox || checkBox.Tag?.ToString() is not string tag)
+                    return;
+
+                var tagParts = tag.Split('|');
+                if (tagParts.Length < 3) return;
+
+                var category = tagParts[1];
+                var operation = tagParts[2];
+
+                if (!_columnSettings.ContainsKey("global"))
+                    _columnSettings["global"] = new ColumnSettings();
+
+                var settings = _columnSettings["global"];
+
+                if (checkBox.IsChecked == true)
+                {
+                    if (!settings.Operations.ContainsKey(category))
+                        settings.Operations[category] = new List<string>();
+
+                    if (!settings.Operations[category].Contains(operation))
+                        settings.Operations[category].Add(operation);
+                }
+                else
+                {
+                    if (settings.Operations.ContainsKey(category))
+                        settings.Operations[category].Remove(operation);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                if (settings.Operations.ContainsKey(category))
-                    settings.Operations[category].Remove(operation);
+                MessageBox.Show($"שגיאה בעדכון פעולה גלובלית: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void OperationCheckBox_Changed(object sender, RoutedEventArgs e)
         {
-            var checkBox = sender as CheckBox;
-            var tagParts = checkBox.Tag.ToString().Split('|');
-            var columnName = tagParts[0];
-            var category = tagParts[1];
-            var operation = tagParts[2];
-
-            if (!_columnSettings.ContainsKey(columnName))
-                _columnSettings[columnName] = new ColumnSettings();
-
-            var settings = _columnSettings[columnName];
-
-            if (checkBox.IsChecked == true)
+            try
             {
-                // פעולות שדורשות קלט מהמשתמש
-                string userInput = null;
-                
-                if (operation == "remove_if_equals")
-                {
-                    userInput = Helpers.InputDialogs.ShowSingleValueDialog(
-                        "הסר שורות עם ערך",
-                        $"איזה ערך ברצונך להסיר מהעמודה '{columnName}'?",
-                        "");
-                    
-                    if (string.IsNullOrEmpty(userInput))
-                    {
-                        checkBox.IsChecked = false;
-                        return;
-                    }
-                }
-                else if (operation == "remove_if_invalid")
-                {
-                    userInput = Helpers.InputDialogs.ShowMultiValueDialog(
-                        "הסר ערכים לא תקינים",
-                        $"אילו ערכים נחשבים לא תקינים בעמודה '{columnName}'?\n(לדוגמה: N/A, לא ידוע, שגוי)",
-                        "N/A, לא ידוע, שגוי");
-                    
-                    if (string.IsNullOrEmpty(userInput))
-                    {
-                        checkBox.IsChecked = false;
-                        return;
-                    }
-                }
-                else if (operation == "replace_nulls")
-                {
-                    userInput = Helpers.InputDialogs.ShowSingleValueDialog(
-                        "החלף ערכי null",
-                        $"באיזה ערך להחליף ערכים ריקים/null בעמודה '{columnName}'?",
-                        "לא זמין");
-                    
-                    if (userInput == null) // אפשר ערך ריק
-                    {
-                        checkBox.IsChecked = false;
-                        return;
-                    }
-                }
-                else if (operation == "replace_values")
-                {
-                    var valueMapping = Helpers.InputDialogs.ShowValueMappingDialog(
-                        "החלף ערכים",
-                        columnName);
-                    
-                    if (valueMapping == null || valueMapping.Count == 0)
-                    {
-                        checkBox.IsChecked = false;
-                        return;
-                    }
-                    
-                    // שמירת המיפוי כJSON string
-                    userInput = System.Text.Json.JsonSerializer.Serialize(valueMapping);
-                }
+                if (sender is not CheckBox checkBox || checkBox.Tag?.ToString() is not string tag)
+                    return;
 
-                if (!settings.Operations.ContainsKey(category))
-                    settings.Operations[category] = new List<string>();
-                
-                if (!settings.Operations[category].Contains(operation))
+                var tagParts = tag.Split('|');
+                if (tagParts.Length < 3) return;
+
+                var columnName = tagParts[0];
+                var category = tagParts[1];
+                var operation = tagParts[2];
+
+                if (!_columnSettings.ContainsKey(columnName))
+                    _columnSettings[columnName] = new ColumnSettings();
+
+                var settings = _columnSettings[columnName];
+
+                if (checkBox.IsChecked == true)
                 {
-                    settings.Operations[category].Add(operation);
-                    
-                    // דיבוג - הדפס מה נשמר
-                    System.Diagnostics.Debug.WriteLine($"Added operation: {operation} to category: {category} for column: {columnName}");
-                    
-                    // שמירת הקלט של המשתמש
-                    if (!settings.UserInputs.ContainsKey(operation))
-                        settings.UserInputs[operation] = new Dictionary<string, object>();
-                        
-                    if (userInput != null)
+                    string? userInput = null;
+
+                    if (operation == "remove_if_equals")
                     {
-                        if (operation == "remove_if_invalid")
+                        userInput = Helpers.InputDialogs.ShowSingleValueDialog(
+                            "הסר שורות עם ערך",
+                            $"איזה ערך ברצונך להסיר מהעמודה '{columnName}'?",
+                            "");
+
+                        if (string.IsNullOrEmpty(userInput))
                         {
-                            // המרת הרשימה לarray
-                            var values = userInput.Split(',').Select(v => v.Trim()).Where(v => !string.IsNullOrEmpty(v)).ToArray();
-                            settings.UserInputs[operation]["values"] = values;
+                            checkBox.IsChecked = false;
+                            return;
                         }
-                        else if (operation == "replace_values")
+                    }
+                    else if (operation == "remove_if_invalid")
+                    {
+                        userInput = Helpers.InputDialogs.ShowMultiValueDialog(
+                            "הסר ערכים לא תקינים",
+                            $"אילו ערכים נחשבים לא תקינים בעמודה '{columnName}'?\n(לדוגמה: N/A, לא ידוע, שגוי)",
+                            "N/A, לא ידוע, שגוי");
+
+                        if (string.IsNullOrEmpty(userInput))
                         {
-                            // שמירת המיפוי כJSON
-                            settings.UserInputs[operation]["mapping_json"] = userInput;
+                            checkBox.IsChecked = false;
+                            return;
                         }
-                        else
+                    }
+                    else if (operation == "replace_nulls")
+                    {
+                        userInput = Helpers.InputDialogs.ShowSingleValueDialog(
+                            "החלף ערכי null",
+                            $"באיזה ערך להחליף ערכים ריקים/null בעמודה '{columnName}'?",
+                            "לא זמין");
+
+                        if (userInput == null)
                         {
-                            settings.UserInputs[operation]["value"] = userInput;
+                            checkBox.IsChecked = false;
+                            return;
                         }
+                    }
+                    else if (operation == "replace_values")
+                    {
+                        var valueMapping = Helpers.InputDialogs.ShowValueMappingDialog("החלף ערכים", columnName);
+
+                        if (valueMapping == null || valueMapping.Count == 0)
+                        {
+                            checkBox.IsChecked = false;
+                            return;
+                        }
+
+                        userInput = System.Text.Json.JsonSerializer.Serialize(valueMapping);
+                    }
+
+                    if (!settings.Operations.ContainsKey(category))
+                        settings.Operations[category] = new List<string>();
+
+                    if (!settings.Operations[category].Contains(operation))
+                    {
+                        settings.Operations[category].Add(operation);
+
+                        if (!settings.UserInputs.ContainsKey(operation))
+                            settings.UserInputs[operation] = new Dictionary<string, object>();
+
+                        if (userInput != null)
+                        {
+                            if (operation == "remove_if_invalid")
+                            {
+                                var values = userInput.Split(',').Select(v => v.Trim()).Where(v => !string.IsNullOrEmpty(v)).ToArray();
+                                settings.UserInputs[operation]["values"] = values;
+                            }
+                            else if (operation == "replace_values")
+                            {
+                                settings.UserInputs[operation]["mapping_json"] = userInput;
+                            }
+                            else
+                            {
+                                settings.UserInputs[operation]["value"] = userInput;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    if (settings.Operations.ContainsKey(category))
+                    {
+                        settings.Operations[category].Remove(operation);
+                        if (settings.UserInputs.ContainsKey(operation))
+                            settings.UserInputs.Remove(operation);
                     }
                 }
             }
-            else
+            catch (Exception ex)
             {
-                if (settings.Operations.ContainsKey(category))
-                {
-                    settings.Operations[category].Remove(operation);
-                    if (settings.UserInputs.ContainsKey(operation))
-                        settings.UserInputs.Remove(operation);
-                }
+                MessageBox.Show($"שגיאה בעדכון פעולה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
-            _columnSettings.Clear();
-            
-            // איפוס כל ה-checkboxes
-            foreach (Border border in ColumnsPanel.Children)
+            try
             {
-                ResetCheckBoxesInPanel(border);
+                _columnSettings.Clear();
+                foreach (Border border in ColumnsPanel.Children)
+                {
+                    ResetCheckBoxesInPanel(border);
+                }
+                ResultTextBlock.Text = "ההגדרות אופסו";
             }
-            
-            ResultTextBlock.Text = "ההגדרות אופסו";
+            catch (Exception ex)
+            {
+                MessageBox.Show($"שגיאה באיפוס הגדרות: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void ResetCheckBoxesInPanel(DependencyObject parent)
@@ -365,7 +446,7 @@ namespace PipeWiseClient
             for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
             {
                 var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
-                
+
                 if (child is CheckBox checkBox)
                 {
                     checkBox.IsChecked = false;
@@ -383,16 +464,16 @@ namespace PipeWiseClient
             {
                 var config = BuildPipelineConfig();
                 var json = JsonConvert.SerializeObject(config, Formatting.Indented);
-                
+
                 var saveDialog = new SaveFileDialog
                 {
                     Filter = "JSON Files (*.json)|*.json",
                     Title = "שמור קונפיגורציה"
                 };
-                
+
                 if (saveDialog.ShowDialog() == true)
                 {
-                    File.WriteAllText(saveDialog.FileName, json);
+                    File.WriteAllText(saveDialog.FileName, json, System.Text.Encoding.UTF8);
                     ResultTextBlock.Text = "הקונפיגורציה נשמרה בהצלחה";
                 }
             }
@@ -406,47 +487,38 @@ namespace PipeWiseClient
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(FilePathTextBox.Text))
+                if (!_isMySqlMode)
                 {
-                    MessageBox.Show("נא לבחור קובץ מקור", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
+                    if (string.IsNullOrWhiteSpace(FilePathTextBox.Text))
+                    {
+                        MessageBox.Show("נא לבחור קובץ מקור", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
 
-                if (!File.Exists(FilePathTextBox.Text))
-                {
-                    MessageBox.Show("הקובץ הנבחר לא קיים", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
+                    if (!File.Exists(FilePathTextBox.Text))
+                    {
+                        MessageBox.Show("הקובץ הנבחר לא קיים", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
                 }
 
                 ResultTextBlock.Text = "מריץ Pipeline...";
 
                 var config = BuildPipelineConfig();
-                
-                // בדוק שהקונפיגורציה נבנתה נכון
-                if (config == null)
+                if (config?.Source == null)
                 {
                     ResultTextBlock.Text = "❌ שגיאה: לא ניתן לבנות קונפיגורציה";
                     return;
                 }
 
-                if (config.Source == null)
-                {
-                    ResultTextBlock.Text = "❌ שגיאה: Source לא נוצר";
-                    return;
-                }
-
                 var json = JsonConvert.SerializeObject(config, Formatting.Indented);
-
-                // דיבוג - הצג את ה-JSON שנשלח
-                ResultTextBlock.Text = $"שולח קונפיגורציה:\n{json}\n\nמעבד...";
 
                 var content = new MultipartFormDataContent();
                 content.Add(new ByteArrayContent(File.ReadAllBytes(FilePathTextBox.Text)), "file", Path.GetFileName(FilePathTextBox.Text));
                 content.Add(new StringContent(json, Encoding.UTF8, "application/json"), "config");
-
                 var response = await _httpClient.PostAsync("http://127.0.0.1:8000/run-pipeline", content);
-                var result = await response.Content.ReadAsStringAsync();
 
+                var result = await response.Content.ReadAsStringAsync();
                 if (response.IsSuccessStatusCode)
                 {
                     ResultTextBlock.Text = $"✅ Pipeline הושלם בהצלחה!\n\nתוצאה:\n{result}";
@@ -458,20 +530,19 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                ResultTextBlock.Text = $"❌ שגיאה בהרצת Pipeline: {ex.Message}\n\nStack Trace:\n{ex.StackTrace}";
+                ResultTextBlock.Text = $"❌ שגיאה בהרצת Pipeline: {ex.Message}";
+                MessageBox.Show($"שגיאה מפורטת: {ex.Message}\n\nStack Trace:\n{ex.StackTrace}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private PipelineConfig BuildPipelineConfig()
+        private PipelineConfig? BuildPipelineConfig()
         {
             try
             {
                 var processors = new List<ProcessorConfig>();
 
-                // פעולות גלובליות (על כל הנתונים)
                 var globalOperations = new List<Dictionary<string, object>>();
 
-                // טיפול בפעולות גלובליות
                 if (_columnSettings.ContainsKey("global"))
                 {
                     var globalSettings = _columnSettings["global"];
@@ -487,7 +558,6 @@ namespace PipeWiseClient
                     }
                 }
 
-                // איסוף פעולות לפי עמודה
                 var cleaningOps = new List<Dictionary<string, object>>();
                 var transformOps = new List<Dictionary<string, object>>();
 
@@ -495,8 +565,7 @@ namespace PipeWiseClient
                 {
                     var columnName = columnEntry.Key;
                     var settings = columnEntry.Value;
-                    
-                    // דלג על הגדרות גלובליות
+
                     if (columnName == "global")
                         continue;
 
@@ -510,7 +579,6 @@ namespace PipeWiseClient
                                 ["fields"] = new[] { columnName }
                             };
 
-                            // הוספת קונפיגורציה מיוחדת לפעולות מסוימות
                             if (operation == "cast_type_int")
                             {
                                 operationConfig["action"] = "cast_type";
@@ -527,46 +595,41 @@ namespace PipeWiseClient
                             {
                                 operationConfig["field"] = columnName;
                                 if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
-                                {
                                     operationConfig["value"] = settings.UserInputs[operation]["value"];
-                                }
                                 else
-                                {
                                     operationConfig["value"] = "";
-                                }
                             }
                             else if (operation == "remove_if_equals")
                             {
                                 operationConfig["field"] = columnName;
                                 if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
-                                {
                                     operationConfig["value"] = settings.UserInputs[operation]["value"];
-                                }
                                 else
-                                {
                                     operationConfig["value"] = "";
-                                }
                             }
                             else if (operation == "remove_if_invalid")
                             {
                                 operationConfig["field"] = columnName;
                                 if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("values"))
-                                {
                                     operationConfig["values"] = settings.UserInputs[operation]["values"];
-                                }
                                 else
-                                {
                                     operationConfig["values"] = new[] { "N/A", "לא ידוע" };
-                                }
                             }
                             else if (operation == "replace_values")
                             {
                                 operationConfig["field"] = columnName;
                                 if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("mapping_json"))
                                 {
-                                    var mappingJson = settings.UserInputs[operation]["mapping_json"].ToString();
-                                    var mapping = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(mappingJson);
-                                    operationConfig["mapping"] = mapping;
+                                    var mappingJson = settings.UserInputs[operation]["mapping_json"]?.ToString();
+                                    if (!string.IsNullOrEmpty(mappingJson))
+                                    {
+                                        var mapping = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(mappingJson);
+                                        operationConfig["mapping"] = mapping ?? new Dictionary<string, string>();
+                                    }
+                                    else
+                                    {
+                                        operationConfig["mapping"] = new Dictionary<string, string>();
+                                    }
                                 }
                                 else
                                 {
@@ -578,20 +641,14 @@ namespace PipeWiseClient
                                 operationConfig["fields"] = new[] { columnName };
                             }
 
-                            // קבע לאיזה processor זה שייך
                             if (IsTransformOperation(operation))
-                            {
                                 transformOps.Add(operationConfig);
-                            }
                             else
-                            {
                                 cleaningOps.Add(operationConfig);
-                            }
                         }
                     }
                 }
 
-                // הוספת processor עבור פעולות גלובליות
                 if (globalOperations.Count > 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -604,7 +661,6 @@ namespace PipeWiseClient
                     });
                 }
 
-                // הוסף cleaner processor אם יש פעולות ניקוי
                 if (cleaningOps.Count > 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -616,8 +672,7 @@ namespace PipeWiseClient
                         }
                     });
                 }
-                
-                // הוסף transformer processor אם יש פעולות טרנספורמציה
+
                 if (transformOps.Count > 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -630,7 +685,6 @@ namespace PipeWiseClient
                     });
                 }
 
-                // אם אין processors, הוסף cleaner בסיסי
                 if (processors.Count == 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -643,26 +697,20 @@ namespace PipeWiseClient
                     });
                 }
 
-                // קבלת סוג הקובץ
-                string fileExtension = Path.GetExtension(FilePathTextBox.Text)?.TrimStart('.').ToLower();
-                if (string.IsNullOrEmpty(fileExtension))
-                {
-                    fileExtension = "csv";
-                }
+                string fileExt = Path.GetExtension(FilePathTextBox.Text)?.TrimStart('.').ToLower() ?? "csv";
 
-                // יצירת קונפיגורציה
                 var config = new PipelineConfig
                 {
                     Source = new SourceConfig
                     {
-                        Type = fileExtension,
+                        Type = fileExt,
                         Path = FilePathTextBox.Text
                     },
                     Processors = processors.ToArray(),
                     Target = new TargetConfig
                     {
                         Type = "csv",
-                        Path = Path.ChangeExtension(FilePathTextBox.Text, "_processed.csv")
+                        Path = Path.ChangeExtension(FilePathTextBox.Text, "_processed.csv") ?? "output.csv"
                     }
                 };
 
@@ -670,47 +718,44 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error building config: {ex.Message}");
-                throw;
+                throw new Exception($"שגיאה בבניית קונפיגורציה: {ex.Message}", ex);
             }
         }
 
         private bool IsTransformOperation(string operation)
         {
-            // פעולות שמתאימות ל-Transformer
             var transformOperations = new[]
             {
                 "to_uppercase",
-                "to_lowercase", 
+                "to_lowercase",
                 "cast_type",
                 "replace_values",
                 "rename_field"
             };
-            
+
             return transformOperations.Contains(operation);
         }
 
-        private bool IsGlobalOperation(string operation)
+        private void SourceTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // פעולות שצריכות לחול על כל הנתונים
-            var globalOperations = new[]
+            try
             {
-                "remove_duplicates",           // הסרת שורות זהות לחלוטין
-                "remove_empty_rows"
-                // remove_duplicates_by_field הוא לפי שדה ספציפי
-            };
-            
-            return globalOperations.Contains(operation);
-        }
+                if (sender is not ComboBox combo) return;
 
-        private string GetProcessorType(string category)
-        {
-            return category switch
+                _isMySqlMode = (combo.SelectedIndex == 1);
+
+                var mysqlPanel = FindName("MySqlPanel") as Border;
+                if (mysqlPanel != null)
+                {
+                    mysqlPanel.Visibility = _isMySqlMode ? Visibility.Visible : Visibility.Collapsed;
+                }
+
+                FilePathTextBox.IsEnabled = !_isMySqlMode;
+            }
+            catch (Exception ex)
             {
-                "cleaning" => "cleaner",
-                "transform" => "transformer",
-                _ => "cleaner"
-            };
+                MessageBox.Show($"שגיאה בשינוי סוג מקור: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

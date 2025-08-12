@@ -6,39 +6,65 @@ namespace PipeWiseClient.Models
     public class PipelineConfig
     {
         [JsonProperty("source")]
-        public SourceConfig Source { get; set; }
+        public required SourceConfig Source { get; set; }
         
         [JsonProperty("processors")]
-        public ProcessorConfig[] Processors { get; set; }
+        public required ProcessorConfig[] Processors { get; set; }
         
         [JsonProperty("target")]
-        public TargetConfig Target { get; set; }
+        public required TargetConfig Target { get; set; }
     }
 
     public class SourceConfig
     {
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public required string Type { get; set; }
         
         [JsonProperty("path")]
-        public string Path { get; set; }
+        public string? Path { get; set; }
+        
+        // MySQL properties
+        [JsonProperty("host")]
+        public string? Host { get; set; }
+        
+        [JsonProperty("user")]
+        public string? User { get; set; }
+        
+        [JsonProperty("password")]
+        public string? Password { get; set; }
+        
+        [JsonProperty("database")]
+        public string? Database { get; set; }
+        
+        [JsonProperty("query")]
+        public string? Query { get; set; }
+        
+        [JsonProperty("port")]
+        public int? Port { get; set; }
+        
+        // Excel properties
+        [JsonProperty("sheet_name")]
+        public string? SheetName { get; set; }
+        
+        [JsonProperty("header_row")]
+        public int? HeaderRow { get; set; }
     }
 
     public class ProcessorConfig
     {
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public required string Type { get; set; }
         
         [JsonProperty("config")]
-        public Dictionary<string, object> Config { get; set; }
+        public required Dictionary<string, object> Config { get; set; }
     }
 
     public class TargetConfig
     {
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public required string Type { get; set; }
         
         [JsonProperty("path")]
-        public string Path { get; set; }
+        public required string Path { get; set; }
     }
 }

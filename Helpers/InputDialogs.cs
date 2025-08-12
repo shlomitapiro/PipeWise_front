@@ -8,7 +8,7 @@ namespace PipeWiseClient.Helpers
 {
     public static class InputDialogs
     {
-        public static string ShowSingleValueDialog(string title, string prompt, string defaultValue = "")
+        public static string? ShowSingleValueDialog(string title, string prompt, string defaultValue = "")
         {
             var dialog = new Window
             {
@@ -74,7 +74,7 @@ namespace PipeWiseClient.Helpers
 
             dialog.Content = grid;
 
-            string result = null;
+            string? result = null;
             okButton.Click += (s, e) =>
             {
                 result = inputTextBox.Text;
@@ -84,13 +84,10 @@ namespace PipeWiseClient.Helpers
             inputTextBox.Focus();
             inputTextBox.SelectAll();
 
-            if (dialog.ShowDialog() == true)
-                return result;
-
-            return null;
+            return dialog.ShowDialog() == true ? result : null;
         }
 
-        public static string ShowMultiValueDialog(string title, string prompt, string defaultValues = "")
+        public static string? ShowMultiValueDialog(string title, string prompt, string defaultValues = "")
         {
             var dialog = new Window
             {
@@ -169,7 +166,7 @@ namespace PipeWiseClient.Helpers
 
             dialog.Content = grid;
 
-            string result = null;
+            string? result = null;
             okButton.Click += (s, e) =>
             {
                 result = inputTextBox.Text;
@@ -178,13 +175,10 @@ namespace PipeWiseClient.Helpers
 
             inputTextBox.Focus();
 
-            if (dialog.ShowDialog() == true)
-                return result;
-
-            return null;
+            return dialog.ShowDialog() == true ? result : null;
         }
 
-        public static Dictionary<string, string> ShowValueMappingDialog(string title, string columnName)
+        public static Dictionary<string, string>? ShowValueMappingDialog(string title, string columnName)
         {
             var dialog = new Window
             {
@@ -276,7 +270,7 @@ namespace PipeWiseClient.Helpers
 
             dialog.Content = grid;
 
-            Dictionary<string, string> result = null;
+            Dictionary<string, string>? result = null;
             okButton.Click += (s, e) =>
             {
                 try
@@ -301,10 +295,7 @@ namespace PipeWiseClient.Helpers
 
             inputTextBox.Focus();
 
-            if (dialog.ShowDialog() == true)
-                return result;
-
-            return null;
+            return dialog.ShowDialog() == true ? result : null;
         }
 
         private static Dictionary<string, string> ParseValueMapping(string input)
