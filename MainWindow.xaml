@@ -54,7 +54,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="100"/>
@@ -81,66 +80,22 @@
                             Margin="10,0,0,0" Height="35"/>
                 </StackPanel>
 
-                <!-- בחירת סוג מקור: קובץ / MySQL -->
-                <StackPanel Orientation="Horizontal" Margin="0,10,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="Source: " VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox x:Name="SourceTypeCombo"
-                              Width="160"
-                              SelectedIndex="0"
-                              SelectionChanged="SourceTypeCombo_SelectionChanged">
-                        <ComboBoxItem Content="File (CSV/JSON/Excel)"/>
-                        <ComboBoxItem Content="MySQL"/>
-                    </ComboBox>
-                </StackPanel>
-
                 <TextBlock x:Name="FileInfoTextBlock" 
                            Text="לא נבחר קובץ" 
                            Foreground="#7F8C8D" 
                            FontStyle="Italic" 
                            Margin="0,5,0,0"/>
-            </StackPanel>
-        </Border>
-
-        <!-- אזור פרטי MySQL (מוסתר כברירת מחדל) -->
-        <Border Grid.Row="2" Style="{StaticResource ColumnPanel}" Margin="0,0,0,15" x:Name="MySqlPanel" Visibility="Collapsed">
-            <StackPanel>
-                <TextBlock Text="🗄️ MySQL Connection" Style="{StaticResource SectionHeader}"/>
-                <Grid Margin="0,8,0,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="200"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Host:" VerticalAlignment="Center"/>
-                    <TextBox   Grid.Row="0" Grid.Column="1" x:Name="MySqlHostTextBox" Margin="8,0,0,6" Text="localhost"/>
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="User:" VerticalAlignment="Center"/>
-                    <TextBox   Grid.Row="1" Grid.Column="1" x:Name="MySqlUserTextBox" Margin="8,0,0,6" Text="root"/>
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Password:" VerticalAlignment="Center"/>
-                    <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="MySqlPasswordBox" Margin="8,0,0,6"/>
-
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Database:" VerticalAlignment="Center"/>
-                    <TextBox   Grid.Row="3" Grid.Column="1" x:Name="MySqlDatabaseTextBox" Margin="8,0,0,6"/>
-
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Query:" VerticalAlignment="Top" Margin="0,4,0,0"/>
-                    <TextBox   Grid.Row="4" Grid.Column="1" x:Name="MySqlQueryTextBox" Margin="8,0,0,0" AcceptsReturn="True" Height="80" Text="SELECT * FROM your_table LIMIT 100"/>
-                </Grid>
-
-                <TextBlock Foreground="#7F8C8D" FontStyle="Italic" Margin="0,6,0,0"
-                           Text="When 'MySQL' is selected as Source, the run will POST JSON to /run-pipeline-json (no file upload)."/>
+                           
+                <!-- הערה על סוגי קבצים נתמכים -->
+                <TextBlock Text="סוגי קבצים נתמכים: CSV, JSON, XML, Excel (XLSX/XLS)" 
+                           Foreground="#95A5A6" 
+                           FontSize="11" 
+                           Margin="0,5,0,0"/>
             </StackPanel>
         </Border>
 
         <!-- אזור עמודות ופעולות -->
-        <Border Grid.Row="3" Style="{StaticResource ColumnPanel}">
+        <Border Grid.Row="2" Style="{StaticResource ColumnPanel}">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <TextBlock Text="⚙️ הגדר פעולות עיבוד" Style="{StaticResource SectionHeader}"/>
@@ -196,7 +151,7 @@
         </Border>
 
         <!-- כפתורי פעולה -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal" 
+        <StackPanel Grid.Row="3" Orientation="Horizontal" 
                     HorizontalAlignment="Center" 
                     Margin="0,15,0,0">
             <Button Content="🔄 אפס הגדרות" 
@@ -217,7 +172,7 @@
         </StackPanel>
 
         <!-- אזור תוצאות -->
-        <Border Grid.Row="5" Style="{StaticResource ColumnPanel}" Margin="0,15,0,0">
+        <Border Grid.Row="4" Style="{StaticResource ColumnPanel}" Margin="0,15,0,0">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <TextBlock x:Name="ResultTextBlock" 
                            Text="התוצאות יוצגו כאן לאחר הרצת Pipeline" 

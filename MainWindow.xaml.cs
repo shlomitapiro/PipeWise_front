@@ -19,7 +19,6 @@ namespace PipeWiseClient
         private readonly HttpClient _httpClient = new HttpClient();
         private List<string> _columnNames = new List<string>();
         private Dictionary<string, ColumnSettings> _columnSettings = new Dictionary<string, ColumnSettings>();
-        private bool _isMySqlMode = false;
 
         public MainWindow()
         {
@@ -29,27 +28,10 @@ namespace PipeWiseClient
                 
                 // אתחול EPPlus
                 ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-                
-                // בדיקה שהUI elements קיימים
-                CheckUIElements();
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"שגיאה באתחול החלון: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void CheckUIElements()
-        {
-            // בדוק אם יש לנו את ה-MySQL elements (אופציונלי)
-            var sourceTypeCombo = FindName("SourceTypeCombo") as ComboBox;
-            var mysqlPanel = FindName("MySqlPanel") as Border;
-            
-            if (sourceTypeCombo == null || mysqlPanel == null)
-            {
-                // אם אין MySQL UI, השבת את MySQL mode
-                _isMySqlMode = false;
-                System.Diagnostics.Debug.WriteLine("MySQL UI elements not found - MySQL mode disabled");
             }
         }
 
@@ -59,7 +41,7 @@ namespace PipeWiseClient
             {
                 var dialog = new OpenFileDialog
                 {
-                    Filter = "CSV Files (*.csv)|*.csv|JSON Files (*.json)|*.json|Excel Files (*.xlsx;*.xls)|*.xlsx;*.xls|All Files (*.*)|*.*",
+                    Filter = "CSV Files (*.csv)|*.csv|JSON Files (*.json)|*.json|Excel Files (*.xlsx;*.xls)|*.xlsx;*.xls|XML Files (*.xml)|*.xml|All Files (*.*)|*.*",
                     Title = "בחר קובץ נתונים"
                 };
 
@@ -96,9 +78,15 @@ namespace PipeWiseClient
                 {
                     LoadExcelColumns(filePath);
                 }
+                else if (extension == ".xml")
+                {
+                    // XML support can be added here if needed
+                    MessageBox.Show("תמיכה ב-XML תבוא בעדכון עתידי", "מידע", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
                 else
                 {
-                    MessageBox.Show("פורמט קובץ לא נתמך", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("פורמט קובץ לא נתמך. נתמכים: CSV, JSON, Excel", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -212,6 +200,7 @@ namespace PipeWiseClient
             };
             mainPanel.Children.Add(header);
 
+            // 🧹 קבוצת ניקוי
             var cleaningGroup = CreateOperationGroup("🧹 ניקוי עמודה", new[]
             {
                 ("הסר אם ערך חסר או null", "remove_if_missing"),
@@ -224,6 +213,7 @@ namespace PipeWiseClient
             }, columnName, "cleaning");
             mainPanel.Children.Add(cleaningGroup);
 
+            // 🔄 קבוצת טרנספורמציות
             var transformGroup = CreateOperationGroup("🔄 טרנספורמציות", new[]
             {
                 ("הפוך לאותיות גדולות", "to_uppercase"),
@@ -233,6 +223,27 @@ namespace PipeWiseClient
                 ("החלף ערכים", "replace_values")
             }, columnName, "transform");
             mainPanel.Children.Add(transformGroup);
+
+            // ✅ קבוצת וולידציה - חדש!
+            var validationGroup = CreateOperationGroup("✅ וולידציה", new[]
+            {
+                ("שדה חובה", "required_field"),
+                ("בדוק טווח מספרי", "validate_numeric_range"),
+                ("בדוק אורך טקסט", "validate_text_length"),
+                ("בדוק פורמט תאריך", "validate_date_format")
+            }, columnName, "validation");
+            mainPanel.Children.Add(validationGroup);
+
+            // 📊 קבוצת אגרגציות - חדש!
+            var aggregationGroup = CreateOperationGroup("📊 חישובים ואגרגציות", new[]
+            {
+                ("חשב גיל מתאריך לידה", "calculate_age"),
+                ("חשב סכום עמודה", "sum_column"), 
+                ("חשב ממוצע עמודה", "average_column"),
+                ("הוסף שדה מחושב", "add_calculated_field"),
+                ("המר שנים לימים", "years_to_days")
+            }, columnName, "aggregation");
+            mainPanel.Children.Add(aggregationGroup);
 
             border.Child = mainPanel;
             return border;
@@ -487,19 +498,16 @@ namespace PipeWiseClient
         {
             try
             {
-                if (!_isMySqlMode)
+                if (string.IsNullOrWhiteSpace(FilePathTextBox.Text))
                 {
-                    if (string.IsNullOrWhiteSpace(FilePathTextBox.Text))
-                    {
-                        MessageBox.Show("נא לבחור קובץ מקור", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
+                    MessageBox.Show("נא לבחור קובץ מקור", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
 
-                    if (!File.Exists(FilePathTextBox.Text))
-                    {
-                        MessageBox.Show("הקובץ הנבחר לא קיים", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-                        return;
-                    }
+                if (!File.Exists(FilePathTextBox.Text))
+                {
+                    MessageBox.Show("הקובץ הנבחר לא קיים", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
                 }
 
                 ResultTextBlock.Text = "מריץ Pipeline...";
@@ -541,8 +549,14 @@ namespace PipeWiseClient
             {
                 var processors = new List<ProcessorConfig>();
 
+                // אוסף פעולות לפי סוג
                 var globalOperations = new List<Dictionary<string, object>>();
+                var cleaningOps = new List<Dictionary<string, object>>();
+                var transformOps = new List<Dictionary<string, object>>();
+                var validationOps = new List<Dictionary<string, object>>(); // חדש!
+                var aggregationOps = new List<Dictionary<string, object>>(); // חדש!
 
+                // טיפול בפעולות גלובליות
                 if (_columnSettings.ContainsKey("global"))
                 {
                     var globalSettings = _columnSettings["global"];
@@ -558,9 +572,7 @@ namespace PipeWiseClient
                     }
                 }
 
-                var cleaningOps = new List<Dictionary<string, object>>();
-                var transformOps = new List<Dictionary<string, object>>();
-
+                // טיפול בפעולות לכל עמודה
                 foreach (var columnEntry in _columnSettings)
                 {
                     var columnName = columnEntry.Key;
@@ -573,82 +585,24 @@ namespace PipeWiseClient
                     {
                         foreach (var operation in category.Value)
                         {
-                            var operationConfig = new Dictionary<string, object>
-                            {
-                                ["action"] = operation,
-                                ["fields"] = new[] { columnName }
-                            };
-
-                            if (operation == "cast_type_int")
-                            {
-                                operationConfig["action"] = "cast_type";
-                                operationConfig["field"] = columnName;
-                                operationConfig["to_type"] = "int";
-                            }
-                            else if (operation == "cast_type_float")
-                            {
-                                operationConfig["action"] = "cast_type";
-                                operationConfig["field"] = columnName;
-                                operationConfig["to_type"] = "float";
-                            }
-                            else if (operation == "replace_nulls")
-                            {
-                                operationConfig["field"] = columnName;
-                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
-                                    operationConfig["value"] = settings.UserInputs[operation]["value"];
-                                else
-                                    operationConfig["value"] = "";
-                            }
-                            else if (operation == "remove_if_equals")
-                            {
-                                operationConfig["field"] = columnName;
-                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
-                                    operationConfig["value"] = settings.UserInputs[operation]["value"];
-                                else
-                                    operationConfig["value"] = "";
-                            }
-                            else if (operation == "remove_if_invalid")
-                            {
-                                operationConfig["field"] = columnName;
-                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("values"))
-                                    operationConfig["values"] = settings.UserInputs[operation]["values"];
-                                else
-                                    operationConfig["values"] = new[] { "N/A", "לא ידוע" };
-                            }
-                            else if (operation == "replace_values")
-                            {
-                                operationConfig["field"] = columnName;
-                                if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("mapping_json"))
-                                {
-                                    var mappingJson = settings.UserInputs[operation]["mapping_json"]?.ToString();
-                                    if (!string.IsNullOrEmpty(mappingJson))
-                                    {
-                                        var mapping = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(mappingJson);
-                                        operationConfig["mapping"] = mapping ?? new Dictionary<string, string>();
-                                    }
-                                    else
-                                    {
-                                        operationConfig["mapping"] = new Dictionary<string, string>();
-                                    }
-                                }
-                                else
-                                {
-                                    operationConfig["mapping"] = new Dictionary<string, string>();
-                                }
-                            }
-                            else if (operation == "drop_columns")
-                            {
-                                operationConfig["fields"] = new[] { columnName };
-                            }
-
-                            if (IsTransformOperation(operation))
-                                transformOps.Add(operationConfig);
-                            else
+                            var operationConfig = BuildOperationConfig(operation, columnName, settings);
+                            
+                            // חלוקה לקטגוריות
+                            if (IsCleaningOperation(operation))
                                 cleaningOps.Add(operationConfig);
+                            else if (IsTransformOperation(operation))
+                                transformOps.Add(operationConfig);
+                            else if (IsValidationOperation(operation)) // חדש!
+                                validationOps.Add(operationConfig);
+                            else if (IsAggregationOperation(operation)) // חדש!
+                                aggregationOps.Add(operationConfig);
                         }
                     }
                 }
 
+                // הוספת processors לפי סדר הלוגי
+                
+                // 1. פעולות גלובליות (ניקוי כללי)
                 if (globalOperations.Count > 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -661,6 +615,7 @@ namespace PipeWiseClient
                     });
                 }
 
+                // 2. ניקוי עמודות
                 if (cleaningOps.Count > 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -673,6 +628,20 @@ namespace PipeWiseClient
                     });
                 }
 
+                // 3. וולידציה - חדש!
+                if (validationOps.Count > 0)
+                {
+                    processors.Add(new ProcessorConfig
+                    {
+                        Type = "validator",
+                        Config = new Dictionary<string, object>
+                        {
+                            ["operations"] = validationOps
+                        }
+                    });
+                }
+
+                // 4. טרנספורמציות
                 if (transformOps.Count > 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -685,6 +654,20 @@ namespace PipeWiseClient
                     });
                 }
 
+                // 5. אגרגציות - חדש!
+                if (aggregationOps.Count > 0)
+                {
+                    processors.Add(new ProcessorConfig
+                    {
+                        Type = "aggregator",
+                        Config = new Dictionary<string, object>
+                        {
+                            ["operations"] = aggregationOps
+                        }
+                    });
+                }
+
+                // אם אין processors - הוסף cleaner ריק
                 if (processors.Count == 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -697,6 +680,7 @@ namespace PipeWiseClient
                     });
                 }
 
+                // קביעת סוג הקובץ
                 string fileExt = Path.GetExtension(FilePathTextBox.Text)?.TrimStart('.').ToLower() ?? "csv";
 
                 var config = new PipelineConfig
@@ -722,40 +706,146 @@ namespace PipeWiseClient
             }
         }
 
+        // פונקציות עזר:
+
+        private Dictionary<string, object> BuildOperationConfig(string operation, string columnName, ColumnSettings settings)
+        {
+            var operationConfig = new Dictionary<string, object>
+            {
+                ["action"] = operation,
+                ["fields"] = new[] { columnName }
+            };
+
+            // טיפול במקרים מיוחדים
+            switch (operation)
+            {
+                case "cast_type_int":
+                    operationConfig["action"] = "cast_type";
+                    operationConfig["field"] = columnName;
+                    operationConfig["to_type"] = "int";
+                    break;
+                    
+                case "cast_type_float":
+                    operationConfig["action"] = "cast_type";
+                    operationConfig["field"] = columnName;
+                    operationConfig["to_type"] = "float";
+                    break;
+                    
+                case "calculate_age":
+                    operationConfig["birth_field"] = columnName;
+                    operationConfig["age_field"] = $"{columnName}_calculated_age";
+                    operationConfig["current_year"] = DateTime.Now.Year;
+                    break;
+                    
+                case "sum_column":
+                    operationConfig["operation"] = "sum";
+                    operationConfig["field"] = columnName;
+                    break;
+                    
+                case "average_column":
+                    operationConfig["operation"] = "average";
+                    operationConfig["field"] = columnName;
+                    break;
+                    
+                case "required_field":
+                    operationConfig["action"] = "required_fields";
+                    operationConfig["fields"] = new[] { columnName };
+                    break;
+                    
+                case "years_to_days":
+                    operationConfig["years_field"] = columnName;
+                    operationConfig["days_field"] = $"{columnName}_in_days";
+                    break;
+                    
+                case "replace_nulls":
+                    operationConfig["field"] = columnName;
+                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
+                        operationConfig["value"] = settings.UserInputs[operation]["value"];
+                    else
+                        operationConfig["value"] = "";
+                    break;
+                    
+                case "remove_if_equals":
+                    operationConfig["field"] = columnName;
+                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("value"))
+                        operationConfig["value"] = settings.UserInputs[operation]["value"];
+                    else
+                        operationConfig["value"] = "";
+                    break;
+                    
+                case "remove_if_invalid":
+                    operationConfig["field"] = columnName;
+                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("values"))
+                        operationConfig["values"] = settings.UserInputs[operation]["values"];
+                    else
+                        operationConfig["values"] = new[] { "N/A", "לא ידוע" };
+                    break;
+                    
+                case "replace_values":
+                    operationConfig["field"] = columnName;
+                    if (settings.UserInputs.ContainsKey(operation) && settings.UserInputs[operation].ContainsKey("mapping_json"))
+                    {
+                        var mappingJson = settings.UserInputs[operation]["mapping_json"]?.ToString();
+                        if (!string.IsNullOrEmpty(mappingJson))
+                        {
+                            var mapping = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(mappingJson);
+                            operationConfig["mapping"] = mapping ?? new Dictionary<string, string>();
+                        }
+                        else
+                        {
+                            operationConfig["mapping"] = new Dictionary<string, string>();
+                        }
+                    }
+                    else
+                    {
+                        operationConfig["mapping"] = new Dictionary<string, string>();
+                    }
+                    break;
+                    
+                case "drop_columns":
+                    operationConfig["fields"] = new[] { columnName };
+                    break;
+            }
+
+            return operationConfig;
+        }
+
+        private bool IsCleaningOperation(string operation)
+        {
+            var cleaningOperations = new[]
+            {
+                "remove_if_missing", "remove_duplicates_by_field", "strip_whitespace",
+                "remove_if_equals", "remove_if_invalid", "replace_nulls", "drop_columns"
+            };
+            return cleaningOperations.Contains(operation);
+        }
+
         private bool IsTransformOperation(string operation)
         {
             var transformOperations = new[]
             {
-                "to_uppercase",
-                "to_lowercase",
-                "cast_type",
-                "replace_values",
-                "rename_field"
+                "to_uppercase", "to_lowercase", "cast_type", "cast_type_int", "cast_type_float",
+                "replace_values", "rename_field"
             };
-
             return transformOperations.Contains(operation);
         }
 
-        private void SourceTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private bool IsValidationOperation(string operation)
         {
-            try
+            var validationOperations = new[]
             {
-                if (sender is not ComboBox combo) return;
+                "required_field", "validate_numeric_range", "validate_text_length", "validate_date_format"
+            };
+            return validationOperations.Contains(operation);
+        }
 
-                _isMySqlMode = (combo.SelectedIndex == 1);
-
-                var mysqlPanel = FindName("MySqlPanel") as Border;
-                if (mysqlPanel != null)
-                {
-                    mysqlPanel.Visibility = _isMySqlMode ? Visibility.Visible : Visibility.Collapsed;
-                }
-
-                FilePathTextBox.IsEnabled = !_isMySqlMode;
-            }
-            catch (Exception ex)
+        private bool IsAggregationOperation(string operation)
+        {
+            var aggregationOperations = new[]
             {
-                MessageBox.Show($"שגיאה בשינוי סוג מקור: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+                "calculate_age", "sum_column", "average_column", "add_calculated_field", "years_to_days"
+            };
+            return aggregationOperations.Contains(operation);
         }
     }
 
