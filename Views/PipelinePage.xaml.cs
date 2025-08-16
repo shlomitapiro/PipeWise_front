@@ -9,13 +9,14 @@ using Newtonsoft.Json;
 using PipeWiseClient.Models;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using PipeWiseClient.Windows;
 
 namespace PipeWiseClient.Views
 {
     public partial class PipelinePage : Page
     {
         private readonly HttpClient _httpClient = new HttpClient();
-        private PipelineConfig _currentConfig = null;
+        private PipelineConfig? _currentConfig = null;
 
         public PipelinePage()
         {
@@ -71,6 +72,11 @@ namespace PipeWiseClient.Views
                 {
                     var configText = File.ReadAllText(dialog.FileName);
                     _currentConfig = JsonConvert.DeserializeObject<PipelineConfig>(configText);
+                    if (_currentConfig == null)
+                    {
+                        MessageBox.Show("קובץ הקונפיגורציה לא תקין או ריק", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
 
                     if (_currentConfig != null)
                     {
@@ -90,7 +96,7 @@ namespace PipeWiseClient.Views
             catch (Exception ex)
             {
                 MessageBox.Show($"שגיאה בטעינת קונפיגורציה: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-                _currentConfig = null;
+                // _currentConfig = null;
             }
         }
 

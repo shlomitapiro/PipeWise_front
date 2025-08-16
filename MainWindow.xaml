@@ -35,47 +35,45 @@
 
         <Style x:Key="SectionHeader" TargetType="TextBlock">
             <Setter Property="FontSize" Value="16"/>
-            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="#2C3E50"/>
             <Setter Property="Margin" Value="0,0,0,10"/>
         </Style>
 
         <Style x:Key="ColumnPanel" TargetType="Border">
-            <Setter Property="Background" Value="#F8F9FA"/>
+            <Setter Property="Background" Value="White"/>
             <Setter Property="BorderBrush" Value="#E1E5E9"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="CornerRadius" Value="5"/>
             <Setter Property="Padding" Value="15"/>
-            <Setter Property="Margin" Value="5"/>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="20">
+    <Grid Background="#F5F6FA" Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="300"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="100"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- כותרת ראשית -->
-        <TextBlock Grid.Row="0" Text="PipeWise - מערכת עיבוד נתונים חכמה" 
-                   FontSize="24" FontWeight="Bold" 
-                   Foreground="#2C3E50" 
-                   HorizontalAlignment="Center" 
-                   Margin="0,0,0,20"/>
-
-        <!-- בחירת קובץ מקור -->
-        <Border Grid.Row="1" Style="{StaticResource ColumnPanel}" Margin="0,0,0,15">
+        <!-- אזור בחירת קובץ -->
+        <Border Grid.Row="0" Style="{StaticResource ColumnPanel}" Margin="0,0,0,15">
             <StackPanel>
-                <TextBlock Text="📁 בחר קובץ מקור" Style="{StaticResource SectionHeader}"/>
-                <StackPanel Orientation="Horizontal">
-                    <TextBox x:Name="FilePathTextBox" Width="600" Height="35" 
-                             IsReadOnly="True" FontSize="12" 
+                <TextBlock Text="📁 בחירת קובץ מקור" Style="{StaticResource SectionHeader}"/>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBox x:Name="FilePathTextBox" 
+                             Width="400" 
+                             Height="35" 
+                             IsReadOnly="True" 
                              VerticalContentAlignment="Center" 
-                             Background="White" BorderBrush="#BDC3C7" BorderThickness="1"/>
-                    <Button Content="Browse" Click="BrowseFile_Click" 
+                             Text="לא נבחר קובץ"
+                             FontSize="12"
+                             Foreground="#7F8C8D"/>
+                    <Button Content="📂 בחר קובץ" 
+                            Click="BrowseFile_Click" 
                             Style="{StaticResource ModernButton}" 
                             Margin="10,0,0,0" Height="35"/>
                 </StackPanel>
@@ -116,36 +114,33 @@
                             Visibility="Collapsed"
                             Margin="0,0,0,15">
                         <StackPanel>
-                            <TextBlock Text="🌐 פעולות על כל הדאטה" 
-                                       FontWeight="Bold" 
+                            <TextBlock Text="🌐 פעולות גלובליות על כל הנתונים" 
+                                       FontWeight="SemiBold" 
                                        FontSize="14" 
-                                       Foreground="#1E3A8A"
+                                       Foreground="#2C3E50" 
                                        Margin="0,0,0,10"/>
                             
-                            <WrapPanel Orientation="Horizontal">
-                                <CheckBox Content="הסר שורות ריקות לחלוטין" 
-                                          Margin="0,2,15,2"
-                                          Tag="global|cleaning|remove_empty_rows"
-                                          Checked="GlobalOperationCheckBox_Changed"
-                                          Unchecked="GlobalOperationCheckBox_Changed"/>
-                                <CheckBox Content="הסר שורות זהות" 
-                                          Margin="0,2,15,2"
-                                          Tag="global|cleaning|remove_duplicates"
-                                          Checked="GlobalOperationCheckBox_Changed"
-                                          Unchecked="GlobalOperationCheckBox_Changed"/>
+                            <WrapPanel>
+                                <CheckBox x:Name="RemoveEmptyRowsCheckBox" 
+                                          Content="הסר שורות ריקות" 
+                                          Margin="0,0,15,5"/>
+                                <CheckBox x:Name="RemoveDuplicatesCheckBox" 
+                                          Content="הסר כפילויות" 
+                                          Margin="0,0,15,5"/>
+                                <CheckBox x:Name="StripWhitespaceCheckBox" 
+                                          Content="נקה רווחים מיותרים" 
+                                          Margin="0,0,15,5"/>
                             </WrapPanel>
                         </StackPanel>
                     </Border>
-                    
-                    <!-- פאנל עמודות -->
-                    <StackPanel x:Name="ColumnsPanel" Visibility="Collapsed">
-                        <TextBlock Text="📊 פעולות לפי עמודה" 
-                                   FontWeight="Bold" 
-                                   FontSize="14" 
-                                   Foreground="#1E3A8A"
-                                   Margin="0,0,0,10"/>
-                        <!-- עמודות יתווספו כאן דינמית -->
-                    </StackPanel>
+
+                    <!-- פאנל עמודות דינמי -->
+                    <ScrollViewer x:Name="ColumnsScrollViewer" 
+                                  VerticalScrollBarVisibility="Auto"
+                                  Visibility="Collapsed"
+                                  MaxHeight="400">
+                        <StackPanel x:Name="ColumnsPanel"/>
+                    </ScrollViewer>
                 </StackPanel>
             </ScrollViewer>
         </Border>
@@ -176,15 +171,192 @@
                     FontSize="14"/>
         </StackPanel>
 
-        <!-- אזור תוצאות -->
-        <Border Grid.Row="4" Style="{StaticResource ColumnPanel}" Margin="0,15,0,0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <TextBlock x:Name="ResultTextBlock" 
-                           Text="התוצאות יוצגו כאן לאחר הרצת Pipeline" 
-                           FontSize="12" 
-                           Foreground="#2C3E50" 
-                           TextWrapping="Wrap"/>
-            </ScrollViewer>
+        <!-- אזור התראות מתקדם -->
+        <Border Grid.Row="4" 
+                Background="#F8F9FA" 
+                BorderBrush="#DEE2E6" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Margin="0,15,0,0"
+                Padding="0">
+            
+            <!-- כותרת האזור -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header עם כותרת וכפתורי פעולה -->
+                <Border Grid.Row="0" 
+                        Background="#343A46" 
+                        CornerRadius="8,8,0,0" 
+                        Padding="15,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <TextBlock Text="🔔" FontSize="16" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="NotificationsHeaderText" 
+                                       Text="מרכז התראות" 
+                                       FontSize="14" 
+                                       FontWeight="SemiBold" 
+                                       Foreground="White"/>
+                            <Border x:Name="NotificationCountBadge" 
+                                    Background="#E74C3C" 
+                                    CornerRadius="10" 
+                                    Padding="6,2" 
+                                    Margin="10,0,0,0"
+                                    Visibility="Collapsed">
+                                <TextBlock x:Name="NotificationCountText" 
+                                           Text="0" 
+                                           FontSize="10" 
+                                           FontWeight="Bold" 
+                                           Foreground="White"/>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="ClearNotificationsBtn"
+                                    Content="🗑️ נקה"
+                                    Background="Transparent"
+                                    Foreground="White"
+                                    BorderThickness="1"
+                                    BorderBrush="#6C757D"
+                                    Padding="8,4"
+                                    FontSize="10"
+                                    Click="ClearNotifications_Click"
+                                    Margin="0,0,5,0">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#495057"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            
+                            <Button x:Name="CollapseNotificationsBtn"
+                                    Content="📦"
+                                    Background="Transparent"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Padding="8,4"
+                                    FontSize="12"
+                                    Click="ToggleNotifications_Click">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#495057"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- תוכן ההתראות -->
+                <ScrollViewer x:Name="NotificationsScrollViewer"
+                              Grid.Row="1" 
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              MaxHeight="300"
+                              Padding="0">
+                    
+                    <StackPanel x:Name="NotificationsPanel" Margin="0">
+                        
+                        <!-- הודעת ברירת מחדל -->
+                        <Border x:Name="DefaultMessageBorder" 
+                                Background="White" 
+                                Padding="20"
+                                Margin="1,0,1,1">
+                            <StackPanel HorizontalAlignment="Center" 
+                                        VerticalAlignment="Center">
+                                <TextBlock Text="💭" 
+                                           FontSize="32" 
+                                           HorizontalAlignment="Center" 
+                                           Margin="0,0,0,10"/>
+                                <TextBlock Text="מערכת ההתראות מוכנה" 
+                                           FontSize="14" 
+                                           FontWeight="SemiBold" 
+                                           Foreground="#6C757D" 
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock Text="התראות יופיעו כאן כאשר תבוצעו פעולות במערכת" 
+                                           FontSize="11" 
+                                           Foreground="#ADB5BD" 
+                                           HorizontalAlignment="Center" 
+                                           Margin="0,5,0,0"/>
+                            </StackPanel>
+                        </Border>
+                        
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- שורת סטטוס תחתונה -->
+                <Border Grid.Row="2" 
+                        Background="#E9ECEF" 
+                        CornerRadius="0,0,8,8" 
+                        Padding="15,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <TextBlock x:Name="SystemStatusText" 
+                                       Text="🟢 המערכת פועלת תקין" 
+                                       FontSize="11" 
+                                       Foreground="#495057"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <TextBlock Text="עדכון אחרון: " 
+                                       FontSize="10" 
+                                       Foreground="#6C757D"/>
+                            <TextBlock x:Name="LastNotificationTimeText" 
+                                       Text="אין עדכונים" 
+                                       FontSize="10" 
+                                       Foreground="#6C757D"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
         </Border>
     </Grid>
 </Window>
