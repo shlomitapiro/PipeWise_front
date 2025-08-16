@@ -11,6 +11,7 @@ using Microsoft.Win32;
 using Newtonsoft.Json;
 using PipeWiseClient.Models;
 using OfficeOpenXml;
+using PipeWiseClient.Helpers;
 
 namespace PipeWiseClient
 {
@@ -32,6 +33,19 @@ namespace PipeWiseClient
             catch (Exception ex)
             {
                 MessageBox.Show($"שגיאה באתחול החלון: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ViewReports_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var reportsWindow = new ReportsWindow();
+                reportsWindow.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"שגיאה בפתיחת חלון הדוחות: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -224,8 +238,8 @@ namespace PipeWiseClient
             }, columnName, "transform");
             mainPanel.Children.Add(transformGroup);
 
-            // ✅ קבוצת וולידציה - חדש!
-            var validationGroup = CreateOperationGroup("✅ וולידציה", new[]
+            // ✅ קבוצת ולידציה - חדש!
+            var validationGroup = CreateOperationGroup("✅ ולידציה", new[]
             {
                 ("שדה חובה", "required_field"),
                 ("בדוק טווח מספרי", "validate_numeric_range"),
@@ -339,40 +353,15 @@ namespace PipeWiseClient
                 {
                     string? userInput = null;
 
+                    // טיפול בפעולות הדורשות קלט מהמשתמש
                     if (operation == "remove_if_equals")
                     {
-                        userInput = Helpers.InputDialogs.ShowSingleValueDialog(
+                        userInput = InputDialogs.ShowSingleValueDialog(
                             "הסר שורות עם ערך",
                             $"איזה ערך ברצונך להסיר מהעמודה '{columnName}'?",
                             "");
-
+                        
                         if (string.IsNullOrEmpty(userInput))
-                        {
-                            checkBox.IsChecked = false;
-                            return;
-                        }
-                    }
-                    else if (operation == "remove_if_invalid")
-                    {
-                        userInput = Helpers.InputDialogs.ShowMultiValueDialog(
-                            "הסר ערכים לא תקינים",
-                            $"אילו ערכים נחשבים לא תקינים בעמודה '{columnName}'?\n(לדוגמה: N/A, לא ידוע, שגוי)",
-                            "N/A, לא ידוע, שגוי");
-
-                        if (string.IsNullOrEmpty(userInput))
-                        {
-                            checkBox.IsChecked = false;
-                            return;
-                        }
-                    }
-                    else if (operation == "replace_nulls")
-                    {
-                        userInput = Helpers.InputDialogs.ShowSingleValueDialog(
-                            "החלף ערכי null",
-                            $"באיזה ערך להחליף ערכים ריקים/null בעמודה '{columnName}'?",
-                            "לא זמין");
-
-                        if (userInput == null)
                         {
                             checkBox.IsChecked = false;
                             return;
@@ -380,53 +369,61 @@ namespace PipeWiseClient
                     }
                     else if (operation == "replace_values")
                     {
-                        var valueMapping = Helpers.InputDialogs.ShowValueMappingDialog("החלף ערכים", columnName);
-
-                        if (valueMapping == null || valueMapping.Count == 0)
+                        var (oldValue, newValue) = InputDialogs.ShowTwoValuesDialog(
+                            "החלף ערכים",
+                            "ערך ישן (להחלפה):",
+                            "ערך חדש:",
+                            "", "");
+                        
+                        if (string.IsNullOrEmpty(oldValue))
                         {
                             checkBox.IsChecked = false;
                             return;
                         }
-
-                        userInput = System.Text.Json.JsonSerializer.Serialize(valueMapping);
+                        
+                        userInput = $"{oldValue}→{newValue}";
+                    }
+                    else if (operation == "validate_numeric_range")
+                    {
+                        var (minValue, maxValue) = InputDialogs.ShowTwoValuesDialog(
+                            "בדיקת טווח מספרי",
+                            "ערך מינימלי:",
+                            "ערך מקסימלי:",
+                            "0", "100");
+                        
+                        if (string.IsNullOrEmpty(minValue) || string.IsNullOrEmpty(maxValue))
+                        {
+                            checkBox.IsChecked = false;
+                            return;
+                        }
+                        
+                        userInput = $"{minValue}-{maxValue}";
                     }
 
+                    // הוספת הפעולה לרשימה
                     if (!settings.Operations.ContainsKey(category))
                         settings.Operations[category] = new List<string>();
 
                     if (!settings.Operations[category].Contains(operation))
-                    {
                         settings.Operations[category].Add(operation);
 
+                    // שמירת קלט המשתמש אם נדרש
+                    if (!string.IsNullOrEmpty(userInput))
+                    {
                         if (!settings.UserInputs.ContainsKey(operation))
                             settings.UserInputs[operation] = new Dictionary<string, object>();
-
-                        if (userInput != null)
-                        {
-                            if (operation == "remove_if_invalid")
-                            {
-                                var values = userInput.Split(',').Select(v => v.Trim()).Where(v => !string.IsNullOrEmpty(v)).ToArray();
-                                settings.UserInputs[operation]["values"] = values;
-                            }
-                            else if (operation == "replace_values")
-                            {
-                                settings.UserInputs[operation]["mapping_json"] = userInput;
-                            }
-                            else
-                            {
-                                settings.UserInputs[operation]["value"] = userInput;
-                            }
-                        }
+                        
+                        settings.UserInputs[operation]["value"] = userInput;
                     }
                 }
                 else
                 {
+                    // הסרת הפעולה
                     if (settings.Operations.ContainsKey(category))
-                    {
                         settings.Operations[category].Remove(operation);
-                        if (settings.UserInputs.ContainsKey(operation))
-                            settings.UserInputs.Remove(operation);
-                    }
+                        
+                    // הסרת קלט המשתמש
+                    settings.UserInputs.Remove(operation);
                 }
             }
             catch (Exception ex)
@@ -628,7 +625,7 @@ namespace PipeWiseClient
                     });
                 }
 
-                // 3. וולידציה - חדש!
+                // 3. ולידציה - חדש!
                 if (validationOps.Count > 0)
                 {
                     processors.Add(new ProcessorConfig

@@ -116,7 +116,7 @@
                             Visibility="Collapsed"
                             Margin="0,0,0,15">
                         <StackPanel>
-                            <TextBlock Text="🌍 פעולות על כל הדאטה" 
+                            <TextBlock Text="🌐 פעולות על כל הדאטה" 
                                        FontWeight="Bold" 
                                        FontSize="14" 
                                        Foreground="#1E3A8A"
@@ -163,6 +163,11 @@
                     Click="SaveConfig_Click" 
                     Style="{StaticResource ModernButton}" 
                     Background="#27AE60" 
+                    Margin="0,0,10,0"/>
+            <Button Content="📊 צפה בדוחות" 
+                    Click="ViewReports_Click" 
+                    Style="{StaticResource ModernButton}" 
+                    Background="#3498DB" 
                     Margin="0,0,10,0"/>
             <Button Content="▶️ הרץ Pipeline" 
                     Click="RunPipeline_Click" 
