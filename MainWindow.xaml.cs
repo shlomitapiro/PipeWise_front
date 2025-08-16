@@ -28,6 +28,17 @@ namespace PipeWiseClient
         private bool _notificationsCollapsed = false;
         private const int MAX_NOTIFICATIONS = 50;
 
+        // הגדרות לשמירת גדלי אזורים
+        private const string SETTINGS_FILE = "ui_settings.json";
+        
+        // מבנה הגריד:
+        // Row 0: אזור בחירת קובץ (Auto)
+        // Row 1: ריווח (Auto) 
+        // Row 2: אזור עמודות ופעולות (2* - ניתן לשינוי)
+        // Row 3: כפתורי פעולה (Auto - גודל קבוע)
+        // Row 4: GridSplitter
+        // Row 5: אזור התראות (1* - ניתן לשינוי)
+        
         public MainWindow()
         {
             try
@@ -37,14 +48,175 @@ namespace PipeWiseClient
                 // אתחול EPPlus
                 ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
                 
+                // טען הגדרות גדלי אזורים
+                LoadUISettings();
+                
                 // הוספת הודעת ברכה
                 AddInfoNotification("ברוך הבא ל-PipeWise", "המערכת מוכנה לעיבוד נתונים");
+                
+                // הוסף מאזיני אירועים לשמירת הגדרות
+                this.Closing += MainWindow_Closing;
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"שגיאה באתחול החלון: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        #region ניהול הגדרות ממשק
+
+        /// <summary>
+        /// מודל להגדרות ממשק המשתמש
+        /// </summary>
+        public class UISettings
+        {
+            public double OperationsAreaHeight { get; set; } = 2; // יחס גודל התחלתי
+            public double NotificationsAreaHeight { get; set; } = 1; // יחס גודל התחלתי
+            public bool NotificationsCollapsed { get; set; } = false;
+            public double WindowWidth { get; set; } = 900;
+            public double WindowHeight { get; set; } = 700;
+        }
+
+        /// <summary>
+        /// שמירת הגדרות ממשק המשתמש
+        /// </summary>
+        private void SaveUISettings()
+        {
+            try
+            {
+                var settings = new UISettings
+                {
+                    // שמור את היחס בין האזורים - עכשיו עם המיקומים הנכונים
+                    OperationsAreaHeight = GetGridRowHeight(2), // אזור עמודות ופעולות
+                    NotificationsAreaHeight = GetGridRowHeight(5), // אזור התראות
+                    NotificationsCollapsed = _notificationsCollapsed,
+                    WindowWidth = this.Width,
+                    WindowHeight = this.Height
+                };
+
+                var json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+                File.WriteAllText(SETTINGS_FILE, json, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                // שגיאה בשמירת הגדרות - לא קריטית
+                AddWarningNotification("שמירת הגדרות", "לא ניתן לשמור הגדרות ממשק", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// טעינת הגדרות ממשק המשתמש
+        /// </summary>
+        private void LoadUISettings()
+        {
+            try
+            {
+                if (!File.Exists(SETTINGS_FILE))
+                    return;
+
+                var json = File.ReadAllText(SETTINGS_FILE, Encoding.UTF8);
+                var settings = JsonConvert.DeserializeObject<UISettings>(json);
+
+                if (settings != null)
+                {
+                    // החזר גדלי אזורים - עכשיו עם המיקומים הנכונים
+                    SetGridRowHeight(2, settings.OperationsAreaHeight); // אזור עמודות ופעולות
+                    SetGridRowHeight(5, settings.NotificationsAreaHeight); // אזור התראות
+                    
+                    // החזר מצב כיווץ התראות
+                    _notificationsCollapsed = settings.NotificationsCollapsed;
+                    if (_notificationsCollapsed && NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
+                    {
+                        NotificationsScrollViewer.Visibility = Visibility.Collapsed;
+                        CollapseNotificationsBtn.Content = "📂";
+                    }
+
+                    // החזר גודל חלון
+                    if (settings.WindowWidth > 0 && settings.WindowHeight > 0)
+                    {
+                        this.Width = Math.Max(settings.WindowWidth, 600); // מינימום רוחב
+                        this.Height = Math.Max(settings.WindowHeight, 500); // מינימום גובה
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // שגיאה בטעינת הגדרות - לא קריטית, השתמש בברירות מחדל
+                AddWarningNotification("טעינת הגדרות", "לא ניתן לטעון הגדרות ממשק, נטענות ברירות מחדל", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// קבלת גובה שורה בגריד
+        /// </summary>
+        private double GetGridRowHeight(int rowIndex)
+        {
+            var grid = FindName("MainGrid") as Grid ?? 
+                      (this.Content as Grid);
+            
+            if (grid != null && rowIndex < grid.RowDefinitions.Count)
+            {
+                var rowDefinition = grid.RowDefinitions[rowIndex];
+                return rowDefinition.Height.Value;
+            }
+            return 1.0; // ברירת מחדל
+        }
+
+        /// <summary>
+        /// הגדרת גובה שורה בגריד
+        /// </summary>
+        private void SetGridRowHeight(int rowIndex, double height)
+        {
+            var grid = FindName("MainGrid") as Grid ?? 
+                      (this.Content as Grid);
+            
+            if (grid != null && rowIndex < grid.RowDefinitions.Count)
+            {
+                var rowDefinition = grid.RowDefinitions[rowIndex];
+                rowDefinition.Height = new GridLength(Math.Max(height, 0.5), GridUnitType.Star);
+            }
+        }
+
+        /// <summary>
+        /// אירוע סגירת חלון - שמור הגדרות
+        /// </summary>
+        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            SaveUISettings();
+        }
+
+        /// <summary>
+        /// איפוס הגדרות ממשק לברירת מחדל
+        /// </summary>
+        public void ResetUIToDefault()
+        {
+            try
+            {
+                // החזר גדלי אזורים לברירת מחדל - עכשיו עם המיקומים הנכונים
+                SetGridRowHeight(2, 2.0); // אזור עמודות - יחס 2
+                SetGridRowHeight(5, 1.0); // אזור התראות - יחס 1
+                
+                // החזר גודל חלון
+                this.Width = 900;
+                this.Height = 700;
+                
+                // החזר מצב התראות
+                if (NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
+                {
+                    _notificationsCollapsed = false;
+                    NotificationsScrollViewer.Visibility = Visibility.Visible;
+                    CollapseNotificationsBtn.Content = "📦";
+                }
+                
+                AddSuccessNotification("איפוס ממשק", "ממשק המשתמש הוחזר לברירת מחדל");
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאה באיפוס ממשק", "לא ניתן לאפס את ממשק המשתמש", ex.Message);
+            }
+        }
+
+        #endregion
 
         #region מערכת התראות
 
@@ -365,12 +537,17 @@ namespace PipeWiseClient
             {
                 NotificationsScrollViewer.Visibility = Visibility.Collapsed;
                 CollapseNotificationsBtn.Content = "📂";
+                AddInfoNotification("ממשק", "אזור ההתראות כווץ");
             }
             else
             {
                 NotificationsScrollViewer.Visibility = Visibility.Visible;
                 CollapseNotificationsBtn.Content = "📦";
+                AddInfoNotification("ממשק", "אזור ההתראות הורחב");
             }
+
+            // שמור הגדרה זו מיידית
+            SaveUISettings();
         }
 
         private void ViewReports_Click(object sender, RoutedEventArgs e)
@@ -653,7 +830,16 @@ namespace PipeWiseClient
         {
             try
             {
-                // איפוס הגדרות
+                var result = MessageBox.Show(
+                    "האם ברצונך לאפס גם את הגדרות הממשק (גדלי אזורים) לברירת מחדל?",
+                    "איפוס הגדרות",
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Cancel)
+                    return;
+
+                // איפוס הגדרות נתונים
                 _columnSettings.Clear();
                 FilePathTextBox.Text = string.Empty;
                 FileInfoTextBlock.Text = "לא נבחר קובץ";
@@ -665,8 +851,17 @@ namespace PipeWiseClient
                 
                 // איפוס כל ה-checkboxes
                 ResetCheckBoxesInPanel(this);
-                
-                AddInfoNotification("איפוס הגדרות", "כל ההגדרות אופסו והממשק חזר למצב התחלתי");
+
+                // איפוס הגדרות ממשק אם המשתמש רצה
+                if (result == MessageBoxResult.Yes)
+                {
+                    ResetUIToDefault();
+                    AddInfoNotification("איפוס מלא", "כל ההגדרות וממשק המשתמש אופסו לברירת מחדל");
+                }
+                else
+                {
+                    AddInfoNotification("איפוס נתונים", "הגדרות הנתונים אופסו, הגדרות הממשק נשמרו");
+                }
             }
             catch (Exception ex)
             {
