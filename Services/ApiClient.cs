@@ -1,7 +1,9 @@
+using System;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Newtonsoft.Json;
 using PipeWiseClient.Models;
 
@@ -85,14 +87,18 @@ namespace PipeWiseClient.Services
                 if (response.IsSuccessStatusCode)
                 {
                     var json = await response.Content.ReadAsStringAsync();
+                    // רישום לדיבוג (רק לפיתוח)
+                    Debug.WriteLine($"Server response: {json}");
                     var result = JsonConvert.DeserializeObject<CleanupResponse>(json);
                     return result?.CleanupResult;
                 }
                 
                 return null;
             }
-            catch
+            catch (Exception ex)
             {
+                // רישום שגיאה לדיבוג (רק לפיתוח)
+                Debug.WriteLine($"Exception in CleanupOldReportsAsync: {ex.Message}");
                 return null;
             }
         }
@@ -101,21 +107,34 @@ namespace PipeWiseClient.Services
     // מודלים לתגובות API
     public class ReportsListResponse
     {
+        [JsonProperty("reports")]
         public List<ReportInfo> Reports { get; set; } = new List<ReportInfo>();
+        
+        [JsonProperty("total_count")]
         public int TotalCount { get; set; }
+        
+        [JsonProperty("message")]
         public string Message { get; set; } = string.Empty;
     }
 
     public class CleanupResponse
     {
+        [JsonProperty("cleanup_result")]
         public CleanupResult? CleanupResult { get; set; }
+        
+        [JsonProperty("message")]
         public string Message { get; set; } = string.Empty;
     }
 
     public class CleanupResult
     {
+        [JsonProperty("deleted_reports")]
         public int DeletedReports { get; set; }
+        
+        [JsonProperty("kept_reports")]
         public int KeptReports { get; set; }
+        
+        [JsonProperty("total_processed")]
         public int TotalProcessed { get; set; }
     }
 
