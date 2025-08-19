@@ -10,18 +10,25 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Microsoft.Win32;
 using Newtonsoft.Json;
-using PipeWiseClient.Models;
 using OfficeOpenXml;
+
 using PipeWiseClient.Helpers;
+using PipeWiseClient.Models;
+using PipeWiseClient.Services;
 using PipeWiseClient.Windows;
+using System.Text.Json;
+
 
 namespace PipeWiseClient
 {
     public partial class MainWindow : Window
     {
-        private readonly HttpClient _httpClient = new HttpClient();
+        private readonly ApiClient _api = new();
         private List<string> _columnNames = new List<string>();
         private Dictionary<string, ColumnSettings> _columnSettings = new Dictionary<string, ColumnSettings>();
+
+        private PipelineConfig? _loadedConfig;
+        private const string OUTPUT_DIR = @"C:\Users\shlom\PipeWise\output";
 
         // מערכת התראות - הגדרות בסיסיות
         private List<NotificationItem> _notifications = new List<NotificationItem>();
@@ -180,7 +187,7 @@ namespace PipeWiseClient
         /// <summary>
         /// אירוע סגירת חלון - שמור הגדרות
         /// </summary>
-        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             SaveUISettings();
         }
@@ -922,52 +929,83 @@ namespace PipeWiseClient
             }
         }
 
+        private void LoadConfig_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Filter = "JSON Files (*.json)|*.json",
+                Title  = "בחר קובץ קונפיגורציה"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            if (!TryReadConfigFromJson(dlg.FileName, out var cfg, out var err))
+            {
+                AddErrorNotification("שגיאה בטעינת קונפיג", "לא ניתן לטעון את הקובץ", err);
+                return;
+            }
+
+            _loadedConfig = cfg!;
+            AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(dlg.FileName)}");
+        }
+
+        private async void SaveAsServerPipeline_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // נשתמש בקונפיג הטעון אם יש; אחרת נבנה מה־UI כמו קודם
+                var cfg = _loadedConfig ?? BuildPipelineConfig();
+                if (cfg == null) { AddErrorNotification("שגיאת קונפיג", "אין קונפיגורציה תקינה"); return; }
+
+                // נבנה נתיב יעד בטוח בהתאם לקובץ הנתונים שנבחר (אם קיים)
+                var dataPath = FilePathTextBox.Text; // קיים אצלך ב־MainWindow
+                EnsureSafeTargetPath(cfg, dataPath);
+
+                var resp = await _api.CreatePipelineAsync(cfg);
+                AddSuccessNotification("Pipeline נשמר בשרת", $"ID: {resp.id}", resp?.message ?? "נשמר בהצלחה");
+
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאה בשמירה לשרת", "לא ניתן לשמור את הפייפליין", ex.Message);
+            }
+        }
+
         private async void RunPipeline_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // בדיקות ראשוניות
-                if (string.IsNullOrWhiteSpace(FilePathTextBox.Text))
+                if (string.IsNullOrWhiteSpace(FilePathTextBox.Text) || !File.Exists(FilePathTextBox.Text))
                 {
-                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור לפני הרצת Pipeline");
+                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור קיים לפני הרצת Pipeline");
                     return;
                 }
 
-                if (!File.Exists(FilePathTextBox.Text))
-                {
-                    AddErrorNotification("קובץ לא נמצא", "הקובץ הנבחר לא קיים במערכת");
-                    return;
-                }
-
-                AddInfoNotification("התחלת עיבוד", "מריץ Pipeline...", "מכין קונפיגורציה ושולח בקשה לשרת");
                 UpdateSystemStatus("מעבד נתונים...", true);
+                AddInfoNotification("התחלת עיבוד", "מריץ Pipeline...", "מכין קונפיגורציה ושולח בקשה לשרת");
 
-                var config = BuildPipelineConfig();
-                if (config?.Source == null)
+                // ✦ אם נטען קובץ קונפיג – נשתמש בו; אחרת נבנה מה־UI (הקוד הקיים שלך)
+                var cfg = _loadedConfig ?? BuildPipelineConfig();
+                if (cfg?.Source == null || cfg.Target == null)
                 {
                     AddErrorNotification("שגיאת קונפיגורציה", "לא ניתן לבנות קונפיגורציה תקינה");
                     return;
                 }
 
-                var json = JsonConvert.SerializeObject(config, Formatting.Indented);
+                // לעקביות, נעדכן את מקור הנתונים לקובץ שבחרת עכשיו
+                cfg.Source.Path = FilePathTextBox.Text;
 
-                var content = new MultipartFormDataContent();
-                content.Add(new ByteArrayContent(File.ReadAllBytes(FilePathTextBox.Text)), "file", Path.GetFileName(FilePathTextBox.Text));
-                content.Add(new StringContent(json, Encoding.UTF8, "application/json"), "config");
-                
-                var response = await _httpClient.PostAsync("http://127.0.0.1:8000/run-pipeline", content);
-                var result = await response.Content.ReadAsStringAsync();
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    AddSuccessNotification("Pipeline הושלם!", "העיבוד הסתיים בהצלחה", $"תגובת שרת:\n{result}");
-                    UpdateSystemStatus("המערכת פועלת תקין", true);
-                }
-                else
-                {
-                    AddErrorNotification("שגיאת שרת", $"השרת החזיר שגיאה ({response.StatusCode})", result);
-                    UpdateSystemStatus("שגיאה בעיבוד", false);
-                }
+                // ✦ חובה: יעד תחת תיקיית output שהשרת אוכף
+                EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
+
+                // ✦ שליחה באמצעות מחלקת ה-API שלנו (ולא HttpClient ידני)
+                var text = await _api.RunAdHocPipelineAsync(
+                    filePath: FilePathTextBox.Text,
+                    config: cfg,
+                    report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false }
+                );
+
+                AddSuccessNotification("Pipeline הושלם!", "העיבוד הסתיים בהצלחה", $"תגובת שרת:\n{text}");
+                UpdateSystemStatus("המערכת פועלת תקין", true);
             }
             catch (Exception ex)
             {
@@ -976,9 +1014,6 @@ namespace PipeWiseClient
             }
         }
 
-        #endregion
-
-        #region פונקציות עזר
 
         private PipelineConfig? BuildPipelineConfig()
         {
@@ -1106,8 +1141,11 @@ namespace PipeWiseClient
                     _ => "csv"
                 };
 
-                // קבע קובץ פלט
-                var outputFileName = Path.GetFileNameWithoutExtension(FilePathTextBox.Text) + "_processed.csv";
+                var outputDirOnServer = @"C:\Users\shlom\PipeWise\output";
+                var outputFileName    = Path.GetFileNameWithoutExtension(FilePathTextBox.Text) + "_processed.csv";
+                var targetPath        = System.IO.Path.Combine(outputDirOnServer, outputFileName);
+
+                try { System.IO.Directory.CreateDirectory(outputDirOnServer); } catch { /* לא קריטי ללקוח */ }
 
                 return new PipelineConfig
                 {
@@ -1128,6 +1166,40 @@ namespace PipeWiseClient
             {
                 AddErrorNotification("שגיאה בבניית קונפיגורציה", ex.Message);
                 return null;
+            }
+        }
+
+        private void EnsureSafeTargetPath(PipelineConfig cfg, string dataFilePath)
+        {
+            // השרת דורש שה־Target.Path יהיה תחת OUTPUT_DIR
+            Directory.CreateDirectory(OUTPUT_DIR);
+            var baseName = string.IsNullOrWhiteSpace(dataFilePath)
+                ? "output"
+                : Path.GetFileNameWithoutExtension(dataFilePath);
+
+            // אם אין סוג יעד – נוודא CSV כברירת מחדל
+            if (string.IsNullOrWhiteSpace(cfg.Target?.Type))
+                cfg.Target.Type = "csv";
+
+            cfg.Target.Path = Path.Combine(OUTPUT_DIR, $"{baseName}_processed.csv");
+        }
+
+        private bool TryReadConfigFromJson(string filePath, out PipelineConfig? cfg, out string? error)
+        {
+            try
+            {
+                var json = File.ReadAllText(filePath, Encoding.UTF8);
+                cfg = Newtonsoft.Json.JsonConvert.DeserializeObject<PipelineConfig>(json);
+                if (cfg == null) { error = "קובץ קונפיג לא תקין."; return false; }
+                if (cfg.Source == null || cfg.Target == null) { error = "חסרים source/target בקונפיג."; return false; }
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                cfg = null;
+                error = ex.Message;
+                return false;
             }
         }
 

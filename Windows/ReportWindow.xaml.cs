@@ -9,12 +9,17 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
 using PipeWiseClient.Services;
+using PipeWiseClient.Models;
+
 
 namespace PipeWiseClient.Windows
 {
     public partial class ReportsWindow : Window
     {
         private List<ReportDisplayModel> _reports = new List<ReportDisplayModel>();
+
+        private readonly ApiClient _api = new();
+
 
         public ReportsWindow()
         {
@@ -41,7 +46,7 @@ namespace PipeWiseClient.Windows
                 {
                     UpdateStatus("מנקה דוחות ישנים...");
                     
-                    var cleanupResult = await ApiClient.CleanupOldReportsAsync(100, 30);
+                    var cleanupResult = await _api.CleanupOldReportsAsync(100, 30);
                     
                     if (cleanupResult != null)
                     {
@@ -78,7 +83,7 @@ namespace PipeWiseClient.Windows
                     UpdateStatus("מוריד דוח HTML...");
 
                     // הורדת הקובץ HTML מהשרת
-                    var htmlData = await ApiClient.DownloadReportFileAsync(report.ReportId, "html");
+                    var htmlData = await _api.DownloadReportFileAsync(report.ReportId, "html");
                     
                     if (htmlData != null)
                     {
@@ -147,7 +152,7 @@ namespace PipeWiseClient.Windows
                     UpdateStatus("מוריד דוח PDF...");
 
                     // ניסיון להוריד את קובץ ה-PDF מהשרת
-                    var pdfData = await ApiClient.DownloadReportFileAsync(report.ReportId, "pdf");
+                    var pdfData = await _api.DownloadReportFileAsync(report.ReportId, "pdf");
                     
                     if (pdfData != null && pdfData.Length > 0)
                     {
@@ -227,8 +232,8 @@ namespace PipeWiseClient.Windows
                     {
                         UpdateStatus("מוחק דוח...");
 
-                        var success = await ApiClient.DeleteReportAsync(report.ReportId);
-                        
+                        var success = await _api.DeleteReportAsync(report.ReportId);
+
                         if (success)
                         {
                             UpdateStatus("דוח נמחק בהצלחה");
@@ -258,7 +263,7 @@ namespace PipeWiseClient.Windows
                 ShowLoading();
                 UpdateStatus("טוען דוחות...");
 
-                var reports = await ApiClient.GetReportsListAsync(100);
+                var reports = await _api.GetReportsListAsync(100);
                 
                 if (reports?.Count > 0)
                 {
@@ -322,6 +327,13 @@ namespace PipeWiseClient.Windows
         {
             LastUpdateTextBlock.Text = $"עדכון אחרון: {DateTime.Now:HH:mm:ss}";
         }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+            _api.Dispose();
+        }
+
     }
 
     // מודל לתצוגה

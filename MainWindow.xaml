@@ -289,6 +289,13 @@
                         Style="{StaticResource ActionBarButton}" 
                         Background="#27AE60" 
                         Margin="0,0,10,0"/>
+
+                <Button Content="טען קונפיגורציה"
+                        Click="LoadConfig_Click" 
+                        Style="{StaticResource ActionBarButton}" 
+                        Background="#d9a664" 
+                        Margin="0,0,10,0"/>
+                        
                 <Button Content="📊 צפה בדוחות" 
                         Click="ViewReports_Click" 
                         Style="{StaticResource ActionBarButton}" 

@@ -1,194 +1,149 @@
 using System;
+using System.IO;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using System.Diagnostics;
-using Newtonsoft.Json;
 using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Services
 {
-    public static class ApiClient
+    public class ApiClient : IDisposable
     {
-        private static readonly HttpClient client = new HttpClient();
-        private const string BASE_URL = "http://localhost:8000";
+        private readonly HttpClient _http;
 
-        public static async Task<string> SendPipelineRequestAsync(PipelineConfig config)
+        // שנה כאן כתובת בסיס אם צריך
+        private const string BASE_URL = "http://127.0.0.1:8000/";
+
+        public ApiClient(HttpClient? http = null)
         {
-            var json = JsonConvert.SerializeObject(config);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await client.PostAsync($"{BASE_URL}/pipeline/run", content);
-            return await response.Content.ReadAsStringAsync();
+            _http = http ?? new HttpClient { BaseAddress = new Uri(BASE_URL) };
         }
 
-        // === פונקציות דוחות חדשות ===
+        public void Dispose() => _http?.Dispose();
 
-        public static async Task<List<ReportInfo>> GetReportsListAsync(int limit = 50)
+        // ------------------ Reports ------------------
+
+        public async Task<List<ReportInfo>> GetReportsListAsync(int limit = 50, CancellationToken ct = default)
         {
-            try
-            {
-                var response = await client.GetAsync($"{BASE_URL}/reports?limit={limit}");
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    var json = await response.Content.ReadAsStringAsync();
-                    var result = JsonConvert.DeserializeObject<ReportsListResponse>(json);
-                    return result?.Reports ?? new List<ReportInfo>();
-                }
-                
-                return new List<ReportInfo>();
-            }
-            catch
-            {
-                return new List<ReportInfo>();
-            }
+            var res = await _http.GetAsync($"reports?limit={limit}", ct);
+            if (!res.IsSuccessStatusCode) return new List<ReportInfo>();
+
+            var json = await res.Content.ReadAsStringAsync(ct);
+            var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<ReportsListResponse>(json);
+            return parsed?.Reports ?? new List<ReportInfo>();
         }
 
-        public static async Task<bool> DeleteReportAsync(string reportId)
+        public async Task<bool> DeleteReportAsync(string reportId, CancellationToken ct = default)
         {
-            try
-            {
-                var response = await client.DeleteAsync($"{BASE_URL}/reports/{reportId}");
-                return response.IsSuccessStatusCode;
-            }
-            catch
-            {
-                return false;
-            }
+            var res = await _http.DeleteAsync($"reports/{reportId}", ct);
+            return res.IsSuccessStatusCode;
         }
 
-        public static async Task<byte[]?> DownloadReportFileAsync(string reportId, string fileType)
+        public async Task<byte[]> DownloadReportFileAsync(string reportId, string fileType, CancellationToken ct = default)
         {
-            try
-            {
-                var response = await client.GetAsync($"{BASE_URL}/reports/{reportId}/download?file_type={fileType}");
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    return await response.Content.ReadAsByteArrayAsync();
-                }
-                
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
+            var res = await _http.GetAsync($"reports/{reportId}/download?file_type={fileType}", ct);
+            if (!res.IsSuccessStatusCode) return null;
+            return await res.Content.ReadAsByteArrayAsync(ct);
         }
 
-        public static async Task<CleanupResult?> CleanupOldReportsAsync(int maxReports = 100, int maxAgeDays = 30)
+        public async Task<CleanupResult> CleanupOldReportsAsync(int maxReports = 100, int maxAgeDays = 30, CancellationToken ct = default)
         {
-            try
-            {
-                var response = await client.PostAsync($"{BASE_URL}/reports/cleanup?max_reports={maxReports}&max_age_days={maxAgeDays}", null);
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    var json = await response.Content.ReadAsStringAsync();
-                    // רישום לדיבוג (רק לפיתוח)
-                    Debug.WriteLine($"Server response: {json}");
-                    var result = JsonConvert.DeserializeObject<CleanupResponse>(json);
-                    return result?.CleanupResult;
-                }
-                
-                return null;
-            }
-            catch (Exception ex)
-            {
-                // רישום שגיאה לדיבוג (רק לפיתוח)
-                Debug.WriteLine($"Exception in CleanupOldReportsAsync: {ex.Message}");
-                return null;
-            }
+            var res = await _http.PostAsync(
+                $"reports/cleanup?max_reports={maxReports}&max_age_days={maxAgeDays}",
+                new StringContent(string.Empty),
+                ct);
+
+            if (!res.IsSuccessStatusCode) return null;
+
+            var json = await res.Content.ReadAsStringAsync(ct);
+            var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<CleanupResponse>(json);
+            return parsed?.CleanupResult;
         }
-    }
 
-    // מודלים לתגובות API
-    public class ReportsListResponse
-    {
-        [JsonProperty("reports")]
-        public List<ReportInfo> Reports { get; set; } = new List<ReportInfo>();
-        
-        [JsonProperty("total_count")]
-        public int TotalCount { get; set; }
-        
-        [JsonProperty("message")]
-        public string Message { get; set; } = string.Empty;
-    }
+        // ------------------ Pipelines (saved) ------------------
 
-    public class CleanupResponse
-    {
-        [JsonProperty("cleanup_result")]
-        public CleanupResult? CleanupResult { get; set; }
-        
-        [JsonProperty("message")]
-        public string Message { get; set; } = string.Empty;
-    }
+        public async Task<PipelinesListResponse> ListPipelinesAsync(string q = null, int limit = 100, CancellationToken ct = default)
+        {
+            var url = "pipelines";
+            url += string.IsNullOrWhiteSpace(q) ? $"?limit={limit}" : $"?q={Uri.EscapeDataString(q)}&limit={limit}";
+            var res = await _http.GetFromJsonAsync<PipelinesListResponse>(url, ct);
+            return res ?? new PipelinesListResponse { pipelines = new List<PipelineSummary>(), total_count = 0 };
+        }
+        public Task<PipelineResponse?> GetPipelineAsync(string id, CancellationToken ct = default)
+            => _http.GetFromJsonAsync<PipelineResponse?>($"pipelines/{id}", ct);
 
-    public class CleanupResult
-    {
-        [JsonProperty("deleted_reports")]
-        public int DeletedReports { get; set; }
-        
-        [JsonProperty("kept_reports")]
-        public int KeptReports { get; set; }
-        
-        [JsonProperty("total_processed")]
-        public int TotalProcessed { get; set; }
-    }
+        public async Task<PipelineResponse> CreatePipelineAsync(PipelineConfig config, CancellationToken ct = default)
+        {
+            var payload = JsonContent.Create(config);
+            var res = await _http.PostAsync("pipelines", payload, ct);
+            res.EnsureSuccessStatusCode();
+            return await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+        }
 
-    public class ReportInfo
-    {
-        [JsonProperty("pipeline_name")]
-        public string? PipelineName { get; set; }
+        public async Task<PipelineResponse> UpdatePipelineAsync(string id, PipelineConfig config, CancellationToken ct = default)
+        {
+            var payload = JsonContent.Create(config);
+            var res = await _http.PutAsync($"pipelines/{id}", payload, ct);
+            res.EnsureSuccessStatusCode();
+            return await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+        }
 
-        [JsonProperty("status")]
-        public string? Status { get; set; }
+        public async Task DeletePipelineAsync(string id, CancellationToken ct = default)
+        {
+            var res = await _http.DeleteAsync($"pipelines/{id}", ct);
+            res.EnsureSuccessStatusCode();
+        }
 
-        [JsonProperty("duration")]
-        public string? Duration { get; set; }
+        public async Task<RunPipelineResult> RunPipelineByIdAsync(
+            string id,
+            string? filePath = null,
+            object? overridesObj = null,
+            RunReportSettings? report = null,
+            CancellationToken ct = default)
 
-        [JsonProperty("start_time")]
-        public string? StartTime { get; set; }
+        {
+            var form = new MultipartFormDataContent();
 
-        [JsonProperty("created_at")]
-        public string? CreatedAt { get; set; }
+            if (!string.IsNullOrWhiteSpace(filePath))
+                form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(filePath, ct)), "file", Path.GetFileName(filePath));
 
-        [JsonProperty("input_rows")]
-        public int InputRows { get; set; }
+            if (overridesObj != null)
+                form.Add(new StringContent(JsonSerializer.Serialize(overridesObj), Encoding.UTF8, "application/json"), "overrides");
 
-        [JsonProperty("output_rows")]
-        public int OutputRows { get; set; }
+            if (report != null)
+                form.Add(new StringContent(JsonSerializer.Serialize(report), Encoding.UTF8, "application/json"), "report_settings");
 
-        [JsonProperty("total_errors")]
-        public int TotalErrors { get; set; }
+            var res = await _http.PostAsync($"pipelines/{id}/run", form, ct);
+            res.EnsureSuccessStatusCode();
+            return await res.Content.ReadFromJsonAsync<RunPipelineResult>(cancellationToken: ct);
+        }
 
-        [JsonProperty("total_warnings")]
-        public int TotalWarnings { get; set; }
+        // ------------------ Ad-hoc run (/run-pipeline) ------------------
+        // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
+        public async Task<string> RunAdHocPipelineAsync(string filePath, PipelineConfig config, RunReportSettings report = null, CancellationToken ct = default)
+        {
+            using var form = new MultipartFormDataContent();
 
-        [JsonProperty("source_type")]
-        public string? SourceType { get; set; }
+            form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(filePath, ct)), "file", Path.GetFileName(filePath));
 
-        [JsonProperty("html_path")]
-        public string? HtmlPath { get; set; }
+            var cfgJson = Newtonsoft.Json.JsonConvert.SerializeObject(config);
+            form.Add(new StringContent(cfgJson, Encoding.UTF8, "application/json"), "config");
 
-        [JsonProperty("pdf_path")]
-        public string? PdfPath { get; set; }
+            if (report != null)
+            {
+                var repJson = JsonSerializer.Serialize(report);
+                form.Add(new StringContent(repJson, Encoding.UTF8, "application/json"), "report_settings");
+            }
 
-        [JsonProperty("files_exist")]
-        public FilesExistInfo? FilesExist { get; set; }
-
-        [JsonProperty("report_id")]
-        public string? ReportId { get; set; }
-    }
-
-    public class FilesExistInfo
-    {
-        [JsonProperty("html")]
-        public bool Html { get; set; }
-
-        [JsonProperty("pdf")]
-        public bool Pdf { get; set; }
+            var res = await _http.PostAsync("run-pipeline", form, ct);
+            var text = await res.Content.ReadAsStringAsync(ct);
+            if (!res.IsSuccessStatusCode)
+                throw new HttpRequestException($"Server error ({res.StatusCode}): {text}");
+            return text;
+        }
     }
 }
