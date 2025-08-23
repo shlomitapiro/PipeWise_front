@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using PipeWiseClient.Models;
 using PipeWiseClient.Services;
+using System.Windows.Input; 
 
 namespace PipeWiseClient.Views
 {
@@ -48,7 +49,7 @@ namespace PipeWiseClient.Views
             var dlg = new OpenFileDialog
             {
                 Filter = "CSV (*.csv)|*.csv|JSON (*.json)|*.json|Excel (*.xlsx;*.xls)|*.xlsx;*.xls|XML (*.xml)|*.xml|All Files (*.*)|*.*",
-                Title  = "בחר קובץ נתונים"
+                Title = "בחר קובץ נתונים"
             };
             if (dlg.ShowDialog() == true)
             {
@@ -110,6 +111,12 @@ namespace PipeWiseClient.Views
         {
             if (Application.Current.MainWindow is MainWindow mw)
                 mw.AddErrorNotification(title, "בדוק את פרטי השגיאה", details);
+        }
+        
+        private void PipelinesList_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Delete)
+                DeleteSelected_Click(sender, e);
         }
     }
 }

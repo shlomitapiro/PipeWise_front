@@ -17,6 +17,8 @@ using PipeWiseClient.Models;
 using PipeWiseClient.Services;
 using PipeWiseClient.Windows;
 using System.Text.Json;
+using Newtonsoft.Json.Linq;
+
 
 
 namespace PipeWiseClient
@@ -34,6 +36,8 @@ namespace PipeWiseClient
         private List<NotificationItem> _notifications = new List<NotificationItem>();
         private bool _notificationsCollapsed = false;
         private const int MAX_NOTIFICATIONS = 50;
+
+        private bool _isApplyingConfig = false;
 
         // הגדרות לשמירת גדלי אזורים
         private const string SETTINGS_FILE = "ui_settings.json";
@@ -810,6 +814,8 @@ namespace PipeWiseClient
 
         private void OperationCheckBox_Changed(object sender, RoutedEventArgs e)
         {
+            if (_isApplyingConfig) return; // prevent loops while applying config
+
             if (sender is CheckBox checkBox && checkBox.Tag is string tag)
             {
                 var parts = tag.Split(':');
@@ -817,7 +823,7 @@ namespace PipeWiseClient
                 {
                     var columnName = parts[0];
                     var operationName = parts[1];
-                    
+
                     if (_columnSettings.ContainsKey(columnName))
                     {
                         if (checkBox.IsChecked == true)
@@ -934,7 +940,7 @@ namespace PipeWiseClient
             var dlg = new OpenFileDialog
             {
                 Filter = "JSON Files (*.json)|*.json",
-                Title  = "בחר קובץ קונפיגורציה"
+                Title = "בחר קובץ קונפיגורציה"
             };
             if (dlg.ShowDialog() != true) return;
 
@@ -946,29 +952,189 @@ namespace PipeWiseClient
 
             _loadedConfig = cfg!;
             AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(dlg.FileName)}");
+            ApplyConfigToUI(_loadedConfig);
+        }
+
+        private void ApplyConfigToUI(PipelineConfig cfg)
+        {
+            _isApplyingConfig = true;
+            try
+            {
+                // 1) אם יש נתיב קובץ ב-source ונותן לטעון עמודות – נטען כדי ליצור את הצ׳קבוקסים הדינמיים
+                var sourcePath = cfg.Source?.Path;
+                if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+                {
+                    // מציג את הנתיב בתיבה ויטעין את העמודות (כמו BrowseFile_Click)
+                    FilePathTextBox.Text = sourcePath;
+                    LoadFileColumns(sourcePath);
+                }
+
+                // 2) אפליקציה של פעולות גלובליות (cleaner ללא column)
+                var globalActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var perColumnOps = new List<(string column, string action)>();
+
+                foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
+                {
+                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
+
+                    // ה־Dictionary<string,object> מגיע מ-Newtonsoft ולכן value לרוב יהיה JArray/JObject
+                    if (opsObj is JArray jarr)
+                    {
+                        foreach (var tok in jarr.OfType<JObject>())
+                        {
+                            var action = (string?)tok["action"];
+                            var column = (string?)tok["column"];
+                            if (string.IsNullOrWhiteSpace(action)) continue;
+
+                            if (string.IsNullOrWhiteSpace(column))
+                                globalActions.Add(action);
+                            else
+                                perColumnOps.Add((column, action));
+                        }
+                    }
+                }
+
+                // 3) סנכרון שלושת הצ׳קבוקסים הגלובליים הקיימים במסך
+                RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
+                RemoveDuplicatesCheckBox.IsChecked = globalActions.Contains("remove_duplicates");
+                StripWhitespaceCheckBox.IsChecked  = globalActions.Contains("strip_whitespace");
+
+                // 4) סימון פעולות לפי עמודות (אם כבר נטענו עמודות ונוצרו הצ׳קבוקסים הדינמיים)
+                if (ColumnsPanel != null && ColumnsPanel.Children.Count > 0 && perColumnOps.Count > 0)
+                {
+                    foreach (var (column, action) in perColumnOps)
+                    {
+                        var tag = $"{column}:{action}";
+                        var cb = FindCheckBoxByTag(ColumnsPanel, tag);
+                        if (cb != null) cb.IsChecked = true;
+                    }
+                }
+                else if (perColumnOps.Count > 0 && !string.IsNullOrWhiteSpace(sourcePath) && !File.Exists(sourcePath))
+                {
+                    // יש פעולות לפי עמודות, אבל לא ניתן היה לטעון עמודות כי הקובץ לא קיים/לא נגיש
+                    AddWarningNotification("קובץ מקור לא נטען",
+                        "זיהיתי פעולות לפי עמודות בקונפיגורציה, אך לא נטענו עמודות (הקובץ ב-source.path לא נמצא). " +
+                        "בחר קובץ נתונים זהה לזה שבקונפיג כדי לסמן אוטומטית את הצ׳קבוקסים של העמודות.");
+                }
+            }
+            finally
+            {
+                _isApplyingConfig = false;
+            }
+        }
+
+        private CheckBox? FindCheckBoxByTag(DependencyObject root, string tag)
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is CheckBox cb && cb.Tag is string s && string.Equals(s, tag, StringComparison.OrdinalIgnoreCase))
+                    return cb;
+
+                var inner = FindCheckBoxByTag(child, tag);
+                if (inner != null) return inner;
+            }
+            return null;
         }
 
         private async void SaveAsServerPipeline_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // נשתמש בקונפיג הטעון אם יש; אחרת נבנה מה־UI כמו קודם
+                // קח קונפיג קיים או בנה מה־UI
                 var cfg = _loadedConfig ?? BuildPipelineConfig();
-                if (cfg == null) { AddErrorNotification("שגיאת קונפיג", "אין קונפיגורציה תקינה"); return; }
+                if (cfg == null)
+                {
+                    AddErrorNotification("שגיאת קונפיג", "אין קונפיגורציה תקינה");
+                    return;
+                }
 
-                // נבנה נתיב יעד בטוח בהתאם לקובץ הנתונים שנבחר (אם קיים)
-                var dataPath = FilePathTextBox.Text; // קיים אצלך ב־MainWindow
-                EnsureSafeTargetPath(cfg, dataPath);
+                // הצע שם ברירת מחדל לפי קובץ הנתונים אם יש
+                string baseName;
+                var fp = FilePathTextBox != null ? FilePathTextBox.Text : null;
+                if (!string.IsNullOrWhiteSpace(fp))
+                    baseName = System.IO.Path.GetFileNameWithoutExtension(fp);
+                else
+                    baseName = $"Pipeline {System.DateTime.Now:yyyy-MM-dd HH:mm}";
 
-                var resp = await _api.CreatePipelineAsync(cfg);
-                AddSuccessNotification("Pipeline נשמר בשרת", $"ID: {resp.id}", resp?.message ?? "נשמר בהצלחה");
+                // בקשת שם מהמשתמש
+                var dlg = new PipeWiseClient.Windows.PipelineNameDialog($"{baseName} – שמור");
+                dlg.Owner = this;
+                var ok = dlg.ShowDialog() == true;
+                if (!ok || string.IsNullOrWhiteSpace(dlg.PipelineName))
+                    return;
 
+                // ודא יעד בטוח תחת output
+                EnsureSafeTargetPath(cfg, fp ?? string.Empty);
+
+                // שמירה לשרת עם שם
+                var resp = await _api.CreatePipelineAsync(cfg, name: dlg.PipelineName);
+
+                AddSuccessNotification("Pipeline נשמר בשרת",
+                    $"'{dlg.PipelineName}' (ID: {resp?.id})",
+                    resp?.message ?? "נשמר בהצלחה. ניתן לחפש לפי השם בעמוד הפייפליינים.");
             }
             catch (Exception ex)
             {
                 AddErrorNotification("שגיאה בשמירה לשרת", "לא ניתן לשמור את הפייפליין", ex.Message);
             }
         }
+
+
+        private async void RunSavedPipeline_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // בקש לבחור פייפליין שמור
+                var picker = new PipeWiseClient.Windows.PipelinePickerWindow
+                {
+                    Owner = this
+                };
+                var ok = picker.ShowDialog() == true;
+                if (!ok || picker.SelectedPipeline is not PipelineSummary sel)
+                    return;
+
+                // ↓↓ תיקון NRE: קרא טקסט רק אם הבקר קיים
+                string? dataPath = FilePathTextBox != null ? FilePathTextBox.Text : null;
+
+                if (string.IsNullOrWhiteSpace(dataPath) || !System.IO.File.Exists(dataPath))
+                {
+                    AddWarningNotification("קובץ חסר", "בחר קובץ נתונים לפני הרצת פייפליין שמור");
+
+                    var dlg = new Microsoft.Win32.OpenFileDialog
+                    {
+                        Filter = "CSV (*.csv)|*.csv|JSON (*.json)|*.json|Excel (*.xlsx;*.xls)|*.xlsx;*.xls|XML (*.xml)|*.xml|All Files (*.*)|*.*",
+                        Title  = "בחר קובץ נתונים להרצה"
+                    };
+                    if (dlg.ShowDialog() == true)
+                    {
+                        dataPath = dlg.FileName;
+                        // ↓↓ תיקון NRE: עדכן תיבת טקסט רק אם קיימת
+                        if (FilePathTextBox != null)
+                            FilePathTextBox.Text = dataPath;
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+
+                // בשלב זה dataPath לא ריק וקובץ קיים
+                UpdateSystemStatus("מריץ פייפליין שמור...", true);
+                AddInfoNotification("הרצה", $"מפעיל את '{sel.name}' (ID: {sel.id})");
+
+                var result = await _api.RunPipelineByIdAsync(sel.id, filePath: dataPath);
+
+                AddSuccessNotification("ההרצה הושלמה", $"Pipeline '{sel.name}' הסתיים בהצלחה", result?.message);
+                UpdateSystemStatus("המערכת פועלת תקין", true);
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאה בהרצה", "הרצת פייפליין שמור נכשלה", ex.Message);
+                UpdateSystemStatus("שגיאה במערכת", false);
+            }
+        }
+
 
         private async void RunPipeline_Click(object sender, RoutedEventArgs e)
         {
@@ -1013,7 +1179,6 @@ namespace PipeWiseClient
                 UpdateSystemStatus("שגיאה במערכת", false);
             }
         }
-
 
         private PipelineConfig? BuildPipelineConfig()
         {
@@ -1141,11 +1306,10 @@ namespace PipeWiseClient
                     _ => "csv"
                 };
 
-                var outputDirOnServer = @"C:\Users\shlom\PipeWise\output";
-                var outputFileName    = Path.GetFileNameWithoutExtension(FilePathTextBox.Text) + "_processed.csv";
-                var targetPath        = System.IO.Path.Combine(outputDirOnServer, outputFileName);
-
-                try { System.IO.Directory.CreateDirectory(outputDirOnServer); } catch { /* לא קריטי ללקוח */ }
+                var baseName = Path.GetFileNameWithoutExtension(FilePathTextBox.Text);
+                var outputFileName = $"{baseName}_processed.csv";
+                try { Directory.CreateDirectory(OUTPUT_DIR); } catch { /* לא קריטי ללקוח */ }
+                var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
 
                 return new PipelineConfig
                 {
@@ -1158,7 +1322,7 @@ namespace PipeWiseClient
                     Target = new TargetConfig
                     {
                         Type = "csv",
-                        Path = outputFileName
+                        Path = absoluteTargetPath   // ← נתיב מלא תחת OUTPUT_DIR
                     }
                 };
             }
@@ -1173,15 +1337,31 @@ namespace PipeWiseClient
         {
             // השרת דורש שה־Target.Path יהיה תחת OUTPUT_DIR
             Directory.CreateDirectory(OUTPUT_DIR);
+
             var baseName = string.IsNullOrWhiteSpace(dataFilePath)
                 ? "output"
                 : Path.GetFileNameWithoutExtension(dataFilePath);
 
-            // אם אין סוג יעד – נוודא CSV כברירת מחדל
-            if (string.IsNullOrWhiteSpace(cfg.Target?.Type))
-                cfg.Target.Type = "csv";
+            var defaultType = "csv";
+            var defaultPath = Path.Combine(OUTPUT_DIR, $"{baseName}_processed.csv");
 
-            cfg.Target.Path = Path.Combine(OUTPUT_DIR, $"{baseName}_processed.csv");
+            // אם Target לא מאותחל – אתחול עם required members כבר באובייקט-אינישיאלייזר
+            if (cfg.Target == null)
+            {
+                cfg.Target = new TargetConfig
+                {
+                    Type = defaultType,
+                    Path = defaultPath
+                };
+                return;
+            }
+
+            // אם יש Target אבל חסרים ערכים – מלא ערכי ברירת מחדל
+            if (string.IsNullOrWhiteSpace(cfg.Target.Type))
+                cfg.Target.Type = defaultType;
+
+            if (string.IsNullOrWhiteSpace(cfg.Target.Path))
+                cfg.Target.Path = defaultPath;
         }
 
         private bool TryReadConfigFromJson(string filePath, out PipelineConfig? cfg, out string? error)

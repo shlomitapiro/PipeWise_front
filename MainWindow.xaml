@@ -272,42 +272,56 @@
             </Grid.RowDefinitions>
 
             <!-- כפתורי פעולה -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" 
-                        HorizontalAlignment="Center" 
-                        VerticalAlignment="Top"
-                        Margin="0,15,0,15"
-                        MinHeight="60">
+            <WrapPanel Grid.Row="0"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Margin="0,15,0,15"
+                    ItemHeight="42" ItemWidth="Auto">
 
-                <Button Content="🔄 אפס הגדרות" 
-                        Click="ResetSettings_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#E74C3C" 
-                        Margin="0,0,10,0"/>
+            <!-- איפוס -->
+            <Button Content="אפס הגדרות"
+                    Style="{StaticResource Btn.Reset}"
+                    Tag="&#xE72C;"
+                    Click="ResetSettings_Click"/>
 
-                <Button Content="📊 צפה בדוחות" 
-                        Click="ViewReports_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#8E44AD" 
-                        Margin="0,0,10,0"/>
+            <!-- דוחות -->
+            <Button Content="צפה בדוחות"
+                    Style="{StaticResource Btn.Reports}"
+                    Tag="&#xE9D2;"
+                    Click="ViewReports_Click"/>
 
-                <Button Content="📥 טען קונפיגורציה"
-                        Click="LoadConfig_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#ffb04a" 
-                        Margin="0,0,10,0"/>
-                
-                <Button Content="💾 שמור קונפיגורציה" 
-                        Click="SaveConfig_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#27AE60" 
-                        Margin="0,0,10,0"/>
+            <!-- בחר פייפליין שמור -->
+            <Button Content="בחר פייפליין שמור"
+                    Style="{StaticResource Btn.ChoosePipeline}"
+                    Tag="&#xE838;"
+                    Click="RunSavedPipeline_Click"/>
 
-                <Button Content="▶️ הרץ Pipeline" 
-                        Click="RunPipeline_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#3498DB" 
-                        FontSize="14"/>
-            </StackPanel>
+            <!-- שמור פייפליין לשרת -->
+            <Button Content="שמור פייפליין"
+                    Style="{StaticResource Btn.SavePipeline}"
+                    Tag="&#xE898;"
+                    Click="SaveAsServerPipeline_Click"/>
+
+            <!-- טען קונפיגורציה -->
+            <Button Content="טען קונפיגורציה"
+                    Style="{StaticResource Btn.LoadConfig}"
+                    Tag="&#xE8E5;"
+                    Click="LoadConfig_Click"/>
+
+            <!-- שמור קונפיגורציה -->
+            <Button Content="שמור קונפיגורציה"
+                    Style="{StaticResource Btn.SaveConfig}"
+                    Tag="&#xE74E;"
+                    Click="SaveConfig_Click"/>
+
+            <!-- הרץ Pipeline -->
+            <Button Content="הרץ Pipeline"
+                    Style="{StaticResource Btn.Run}"
+                    Tag="&#xE768;"
+                    FontSize="14"
+                    Click="RunPipeline_Click"/>
+            </WrapPanel>
+
 
             <!-- אזור התראות מתקדם - עם יכולת שינוי גודל -->
             <Border Grid.Row="1" 

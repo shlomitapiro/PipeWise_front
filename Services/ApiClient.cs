@@ -23,7 +23,7 @@ namespace PipeWiseClient.Services
             _http = http ?? new HttpClient { BaseAddress = new Uri(BASE_URL) };
         }
 
-        public void Dispose() => _http?.Dispose();
+        public void Dispose() => _http.Dispose();
 
         // ------------------ Reports ------------------
 
@@ -46,16 +46,15 @@ namespace PipeWiseClient.Services
         public async Task<byte[]> DownloadReportFileAsync(string reportId, string fileType, CancellationToken ct = default)
         {
             var res = await _http.GetAsync($"reports/{reportId}/download?file_type={fileType}", ct);
-            if (!res.IsSuccessStatusCode) return null;
+            if (!res.IsSuccessStatusCode) return Array.Empty<byte>(); // ↓ לא מחזירים null
             return await res.Content.ReadAsByteArrayAsync(ct);
         }
 
-        public async Task<CleanupResult> CleanupOldReportsAsync(int maxReports = 100, int maxAgeDays = 30, CancellationToken ct = default)
+        public async Task<CleanupResult?> CleanupOldReportsAsync(int maxReports = 100, int maxAgeDays = 30, CancellationToken ct = default)
         {
-            var res = await _http.PostAsync(
-                $"reports/cleanup?max_reports={maxReports}&max_age_days={maxAgeDays}",
-                new StringContent(string.Empty),
-                ct);
+            // ↓ StringContent עם קידוד וסוג תוכן – אין null-encoding
+            using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
+            var res = await _http.PostAsync($"reports/cleanup?max_reports={maxReports}&max_age_days={maxAgeDays}", content, ct);
 
             if (!res.IsSuccessStatusCode) return null;
 
@@ -66,30 +65,71 @@ namespace PipeWiseClient.Services
 
         // ------------------ Pipelines (saved) ------------------
 
-        public async Task<PipelinesListResponse> ListPipelinesAsync(string q = null, int limit = 100, CancellationToken ct = default)
+        public async Task<PipelinesListResponse> ListPipelinesAsync(string? q = null, int limit = 100, CancellationToken ct = default)
         {
             var url = "pipelines";
             url += string.IsNullOrWhiteSpace(q) ? $"?limit={limit}" : $"?q={Uri.EscapeDataString(q)}&limit={limit}";
             var res = await _http.GetFromJsonAsync<PipelinesListResponse>(url, ct);
             return res ?? new PipelinesListResponse { pipelines = new List<PipelineSummary>(), total_count = 0 };
         }
+
         public Task<PipelineResponse?> GetPipelineAsync(string id, CancellationToken ct = default)
             => _http.GetFromJsonAsync<PipelineResponse?>($"pipelines/{id}", ct);
 
-        public async Task<PipelineResponse> CreatePipelineAsync(PipelineConfig config, CancellationToken ct = default)
+        public async Task<PipelineResponse> CreatePipelineAsync(
+            PipelineConfig config,
+            string? name = null,
+            string? description = null,
+            CancellationToken ct = default)
         {
-            var payload = JsonContent.Create(config);
+            // אם ניתן שם/תיאור – נשלב אותם יחד עם השדות הראשיים שהשרת מצפה להם
+            // payload ברמת-שורש: { name, description, source, processors, target }
+            HttpContent payload;
+
+            if (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(description))
+            {
+                var body = new Dictionary<string, object?>()
+                {
+                    ["name"] = string.IsNullOrWhiteSpace(name) ? null : name,
+                    ["description"] = string.IsNullOrWhiteSpace(description) ? null : description,
+                    ["source"] = config.Source,
+                    ["processors"] = config.Processors,
+                    ["target"] = config.Target
+                };
+                payload = JsonContent.Create(body);
+            }
+            else
+            {
+                // תאימות: כפי שהיה קודם – שליחת האובייקט עצמו
+                payload = JsonContent.Create(config);
+            }
+
             var res = await _http.PostAsync("pipelines", payload, ct);
+
+            // אם מסיבה כלשהי השרת לא מקבל פורמט עם name/description – fallback לפורמט הישן
+            if (!res.IsSuccessStatusCode && (name != null || description != null))
+            {
+                var fallback = await _http.PostAsync("pipelines", JsonContent.Create(config), ct);
+                fallback.EnsureSuccessStatusCode();
+                var pr2 = await fallback.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+                if (pr2 == null) throw new InvalidOperationException("Empty response from server.");
+                return pr2;
+            }
+
             res.EnsureSuccessStatusCode();
-            return await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+            var pr = await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+            if (pr == null) throw new InvalidOperationException("Empty response from server.");
+            return pr;
         }
+
 
         public async Task<PipelineResponse> UpdatePipelineAsync(string id, PipelineConfig config, CancellationToken ct = default)
         {
             var payload = JsonContent.Create(config);
             var res = await _http.PutAsync($"pipelines/{id}", payload, ct);
             res.EnsureSuccessStatusCode();
-            return await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+            var body = await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+            return body ?? throw new InvalidOperationException("Empty or invalid server response for UpdatePipelineAsync.");
         }
 
         public async Task DeletePipelineAsync(string id, CancellationToken ct = default)
@@ -104,9 +144,8 @@ namespace PipeWiseClient.Services
             object? overridesObj = null,
             RunReportSettings? report = null,
             CancellationToken ct = default)
-
         {
-            var form = new MultipartFormDataContent();
+            using var form = new MultipartFormDataContent();
 
             if (!string.IsNullOrWhiteSpace(filePath))
                 form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(filePath, ct)), "file", Path.GetFileName(filePath));
@@ -119,12 +158,13 @@ namespace PipeWiseClient.Services
 
             var res = await _http.PostAsync($"pipelines/{id}/run", form, ct);
             res.EnsureSuccessStatusCode();
-            return await res.Content.ReadFromJsonAsync<RunPipelineResult>(cancellationToken: ct);
+            var body = await res.Content.ReadFromJsonAsync<RunPipelineResult>(cancellationToken: ct);
+            return body ?? throw new InvalidOperationException("Empty or invalid server response for RunPipelineByIdAsync.");
         }
 
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
         // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
-        public async Task<string> RunAdHocPipelineAsync(string filePath, PipelineConfig config, RunReportSettings report = null, CancellationToken ct = default)
+        public async Task<string> RunAdHocPipelineAsync(string filePath, PipelineConfig config, RunReportSettings? report = null, CancellationToken ct = default)
         {
             using var form = new MultipartFormDataContent();
 
