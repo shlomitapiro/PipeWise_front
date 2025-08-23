@@ -1080,61 +1080,57 @@ namespace PipeWiseClient
             }
         }
 
-
         private async void RunSavedPipeline_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // בקש לבחור פייפליין שמור
+                // חלון בחירת פייפליין
                 var picker = new PipeWiseClient.Windows.PipelinePickerWindow
                 {
                     Owner = this
                 };
-                var ok = picker.ShowDialog() == true;
-                if (!ok || picker.SelectedPipeline is not PipelineSummary sel)
-                    return;
 
-                // ↓↓ תיקון NRE: קרא טקסט רק אם הבקר קיים
-                string? dataPath = FilePathTextBox != null ? FilePathTextBox.Text : null;
-
-                if (string.IsNullOrWhiteSpace(dataPath) || !System.IO.File.Exists(dataPath))
+                var ok = picker.ShowDialog() == true && picker.SelectedPipeline != null;
+                if (!ok)
                 {
-                    AddWarningNotification("קובץ חסר", "בחר קובץ נתונים לפני הרצת פייפליין שמור");
-
-                    var dlg = new Microsoft.Win32.OpenFileDialog
-                    {
-                        Filter = "CSV (*.csv)|*.csv|JSON (*.json)|*.json|Excel (*.xlsx;*.xls)|*.xlsx;*.xls|XML (*.xml)|*.xml|All Files (*.*)|*.*",
-                        Title  = "בחר קובץ נתונים להרצה"
-                    };
-                    if (dlg.ShowDialog() == true)
-                    {
-                        dataPath = dlg.FileName;
-                        // ↓↓ תיקון NRE: עדכן תיבת טקסט רק אם קיימת
-                        if (FilePathTextBox != null)
-                            FilePathTextBox.Text = dataPath;
-                    }
-                    else
-                    {
-                        return;
-                    }
+                    // המשתמש סגר או ביטל
+                    AddInfoNotification("בחירה בוטלה", "לא נבחר פייפליין.");
+                    return;
                 }
 
-                // בשלב זה dataPath לא ריק וקובץ קיים
-                UpdateSystemStatus("מריץ פייפליין שמור...", true);
-                AddInfoNotification("הרצה", $"מפעיל את '{sel.name}' (ID: {sel.id})");
+                var p = picker.SelectedPipeline!;
 
-                var result = await _api.RunPipelineByIdAsync(sel.id, filePath: dataPath);
+                // הודעת אישור – בלי פתיחת דיאלוג קובץ
+                var confirm = MessageBox.Show(
+                    $"פייפליין \"{p.name}\" נבחר.\n\n" +
+                    $"בלחיצה על 'אישור' תתבצע הרצה של הפייפליין.\n" +
+                    $"בלחיצה על 'ביטול' הבחירה תבוטל ולא תתבצע הרצה.",
+                    "אישור הרצת פייפליין",
+                    MessageBoxButton.OKCancel,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.OK);
 
-                AddSuccessNotification("ההרצה הושלמה", $"Pipeline '{sel.name}' הסתיים בהצלחה", result?.message);
+                if (confirm != MessageBoxResult.OK)
+                {
+                    AddInfoNotification("בחירה בוטלה", $"הפייפליין '{p.name}' לא הורץ.");
+                    return;
+                }
+
+                // הרצה (ללא קובץ קלט – השרת תומך באופציונלי)
+                UpdateSystemStatus("מריץ פייפליין שמור…", true);
+                AddInfoNotification("הרצה", $"מריץ את '{p.name}'");
+
+                var runResult = await _api.RunPipelineByIdAsync(p.id, filePath: null);
+
+                AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
                 UpdateSystemStatus("המערכת פועלת תקין", true);
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בהרצה", "הרצת פייפליין שמור נכשלה", ex.Message);
+                AddErrorNotification("שגיאה בהרצת פייפליין", "לא ניתן להריץ את הפייפליין שנבחר", ex.Message);
                 UpdateSystemStatus("שגיאה במערכת", false);
             }
         }
-
 
         private async void RunPipeline_Click(object sender, RoutedEventArgs e)
         {
