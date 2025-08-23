@@ -78,7 +78,7 @@
             <Setter Property="Padding" Value="15"/>
         </Style>
 
-        <!-- סגנון GridSplitter מותאם אישית -->
+        <!-- GridSplitter -->
         <Style x:Key="CustomGridSplitter" TargetType="GridSplitter">
             <Setter Property="Background" Value="#E1E5E9"/>
             <Setter Property="Height" Value="8"/>
@@ -92,7 +92,6 @@
                         <Border Background="{TemplateBinding Background}" 
                                 CornerRadius="4">
                             <Grid>
-                                <!-- אינדיקטור חזותי לגרירה -->
                                 <Rectangle Height="2" 
                                            Fill="#BDC3C7" 
                                            Margin="40,0"
@@ -124,7 +123,6 @@
         </Style>
     </Window.Resources>
 
-    <!-- גריד ראשי -->
     <Grid x:Name="MainGrid" Background="#F5F6FA" Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>                    <!-- 0: אזור בחירת קובץ -->
@@ -279,32 +277,35 @@
                         VerticalAlignment="Top"
                         Margin="0,15,0,15"
                         MinHeight="60">
+
                 <Button Content="🔄 אפס הגדרות" 
                         Click="ResetSettings_Click" 
                         Style="{StaticResource ActionBarButton}" 
                         Background="#E74C3C" 
                         Margin="0,0,10,0"/>
+
+                <Button Content="📊 צפה בדוחות" 
+                        Click="ViewReports_Click" 
+                        Style="{StaticResource ActionBarButton}" 
+                        Background="#8E44AD" 
+                        Margin="0,0,10,0"/>
+
+                <Button Content="📥 טען קונפיגורציה"
+                        Click="LoadConfig_Click" 
+                        Style="{StaticResource ActionBarButton}" 
+                        Background="#ffb04a" 
+                        Margin="0,0,10,0"/>
+                
                 <Button Content="💾 שמור קונפיגורציה" 
                         Click="SaveConfig_Click" 
                         Style="{StaticResource ActionBarButton}" 
                         Background="#27AE60" 
                         Margin="0,0,10,0"/>
 
-                <Button Content="טען קונפיגורציה"
-                        Click="LoadConfig_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#d9a664" 
-                        Margin="0,0,10,0"/>
-                        
-                <Button Content="📊 צפה בדוחות" 
-                        Click="ViewReports_Click" 
-                        Style="{StaticResource ActionBarButton}" 
-                        Background="#3498DB" 
-                        Margin="0,0,10,0"/>
                 <Button Content="▶️ הרץ Pipeline" 
                         Click="RunPipeline_Click" 
                         Style="{StaticResource ActionBarButton}" 
-                        Background="#8E44AD" 
+                        Background="#3498DB" 
                         FontSize="14"/>
             </StackPanel>
 
