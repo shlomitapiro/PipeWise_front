@@ -185,7 +185,8 @@ namespace PipeWiseClient.Services
 
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
         // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
-        public async Task<string> RunAdHocPipelineAsync(string filePath, PipelineConfig config, RunReportSettings? report = null, CancellationToken ct = default)
+        public async Task<RunPipelineResult> RunAdHocPipelineAsync(
+            string filePath, PipelineConfig config, RunReportSettings? report = null, CancellationToken ct = default)
         {
             using var form = new MultipartFormDataContent();
 
@@ -204,7 +205,12 @@ namespace PipeWiseClient.Services
             var text = await res.Content.ReadAsStringAsync(ct);
             if (!res.IsSuccessStatusCode)
                 throw new HttpRequestException($"Server error ({res.StatusCode}): {text}");
-            return text;
+
+            // נפרש לתוך RunPipelineResult כדי לקבל TargetPath
+            var body = System.Text.Json.JsonSerializer.Deserialize<RunPipelineResult>(text);
+            if (body == null) throw new InvalidOperationException("Empty or invalid server response for RunAdHocPipelineAsync.");
+            return body;
         }
+
     }
 }

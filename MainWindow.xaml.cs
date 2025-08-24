@@ -1124,6 +1124,24 @@ namespace PipeWiseClient
 
                 AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
                 UpdateSystemStatus("המערכת פועלת תקין", true);
+
+                if (!string.IsNullOrWhiteSpace(runResult?.TargetPath))
+                {
+                    try
+                    {
+                        // פתיחה בסייר החלונות עם סימון הקובץ
+                        System.Diagnostics.Process.Start("explorer.exe", "/select," + runResult.TargetPath);
+
+                        // נוטיפיקציה ידידותית עם הנתיב
+                        AddSuccessNotification("הריצה הצליחה", $"הקובץ נוצר ב:\n{runResult.TargetPath}");
+
+                    }
+                    catch (Exception ex)
+                    {
+                        AddErrorNotification("הריצה הצליחה", $"הקובץ נוצר, אך פתיחת התיקיה נכשלה.\n{runResult.TargetPath}\n\n{ex.Message}");
+                    }
+                }
+
             }
             catch (Exception ex)
             {
@@ -1143,9 +1161,8 @@ namespace PipeWiseClient
                 }
 
                 UpdateSystemStatus("מעבד נתונים...", true);
-                AddInfoNotification("התחלת עיבוד", "מריץ Pipeline...", "מכין קונפיגורציה ושולח בקשה לשרת");
+                AddInfoNotification("התחלת עיבוד", "מריץ Pipeline...");
 
-                // ✦ אם נטען קובץ קונפיג – נשתמש בו; אחרת נבנה מה־UI (הקוד הקיים שלך)
                 var cfg = _loadedConfig ?? BuildPipelineConfig();
                 if (cfg?.Source == null || cfg.Target == null)
                 {
@@ -1153,20 +1170,35 @@ namespace PipeWiseClient
                     return;
                 }
 
-                // לעקביות, נעדכן את מקור הנתונים לקובץ שבחרת עכשיו
+                // הקובץ שנבחר כרגע הוא ה-source בפועל
                 cfg.Source.Path = FilePathTextBox.Text;
 
-                // ✦ חובה: יעד תחת תיקיית output שהשרת אוכף
+                // ודא יעד בטוח תחת OUTPUT_DIR
                 EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
 
-                // ✦ שליחה באמצעות מחלקת ה-API שלנו (ולא HttpClient ידני)
-                var text = await _api.RunAdHocPipelineAsync(
+                // ✦ עכשיו נקבל אובייקט עם TargetPath
+                var result = await _api.RunAdHocPipelineAsync(
                     filePath: FilePathTextBox.Text,
                     config: cfg,
                     report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false }
                 );
 
-                AddSuccessNotification("Pipeline הושלם!", "העיבוד הסתיים בהצלחה", $"תגובת שרת:\n{text}");
+                AddSuccessNotification("Pipeline הושלם!", result.message);
+
+                // פתיחת קובץ היעד אם קיים
+                if (!string.IsNullOrWhiteSpace(result.TargetPath))
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start("explorer.exe", "/select," + result.TargetPath);
+                        AddInfoNotification("קובץ נוצר", $"הקובץ נוצר ב:\n{result.TargetPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        AddWarningNotification("קובץ נוצר", $"הקובץ נוצר אך לא הצלחתי לפתוח את התיקיה.\n{result.TargetPath}\n\n{ex.Message}");
+                    }
+                }
+
                 UpdateSystemStatus("המערכת פועלת תקין", true);
             }
             catch (Exception ex)
