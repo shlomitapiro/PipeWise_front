@@ -6,39 +6,65 @@ namespace PipeWiseClient.Models
     public class PipelineConfig
     {
         [JsonProperty("source")]
-        public SourceConfig Source { get; set; }
+        public required SourceConfig Source { get; set; }
         
         [JsonProperty("processors")]
-        public ProcessorConfig[] Processors { get; set; }
+        public required ProcessorConfig[] Processors { get; set; }
         
         [JsonProperty("target")]
-        public TargetConfig Target { get; set; }
+        public required TargetConfig Target { get; set; }
     }
 
     public class SourceConfig
     {
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public required string Type { get; set; }
         
         [JsonProperty("path")]
-        public string Path { get; set; }
+        public required string Path { get; set; }
+        
+        // Excel specific properties
+        [JsonProperty("sheet_name")]
+        public string? SheetName { get; set; }
+        
+        [JsonProperty("header_row")]
+        public int? HeaderRow { get; set; }
+        
+        [JsonProperty("engine")]
+        public string? Engine { get; set; }
+        
+        // CSV specific properties
+        [JsonProperty("delimiter")]
+        public string? Delimiter { get; set; }
+        
+        // JSON specific properties
+        [JsonProperty("root_key")]
+        public string? RootKey { get; set; }
+        
+        // XML specific properties
+        [JsonProperty("record_tag")]
+        public string? RecordTag { get; set; }
     }
 
     public class ProcessorConfig
     {
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public required string Type { get; set; }
         
         [JsonProperty("config")]
-        public Dictionary<string, object> Config { get; set; }
+        public required Dictionary<string, object> Config { get; set; }
     }
 
     public class TargetConfig
     {
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public required string Type { get; set; }
         
         [JsonProperty("path")]
-        public string Path { get; set; }
+        public required string Path { get; set; }
+        
+        // JSON target specific properties
+        [JsonProperty("pretty")]
+        public bool? Pretty { get; set; }
     }
 }

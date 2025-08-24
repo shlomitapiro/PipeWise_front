@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -8,7 +7,10 @@ namespace PipeWiseClient.Helpers
 {
     public static class InputDialogs
     {
-        public static string ShowSingleValueDialog(string title, string prompt, string defaultValue = "")
+        /// <summary>
+        /// הצגת דיאלוג לקבלת ערך יחיד מהמשתמש
+        /// </summary>
+        public static string? ShowSingleValueDialog(string title, string prompt, string defaultValue = "")
         {
             var dialog = new Window
             {
@@ -16,330 +18,271 @@ namespace PipeWiseClient.Helpers
                 Width = 400,
                 Height = 200,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize
+                ResizeMode = ResizeMode.NoResize,
+                Owner = Application.Current.MainWindow
             };
 
-            var grid = new Grid();
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var stackPanel = new StackPanel
+            {
+                Margin = new Thickness(20)
+            };
 
+            // הוספת טקסט ההנחיה
             var promptLabel = new TextBlock
             {
                 Text = prompt,
-                Margin = new Thickness(10),
-                TextWrapping = TextWrapping.Wrap
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10)
             };
-            Grid.SetRow(promptLabel, 0);
-            grid.Children.Add(promptLabel);
+            stackPanel.Children.Add(promptLabel);
 
-            var inputTextBox = new TextBox
+            // תיבת טקסט לקלט
+            var textBox = new TextBox
             {
                 Text = defaultValue,
-                Margin = new Thickness(10),
-                Height = 25
+                Margin = new Thickness(0, 0, 0, 20)
             };
-            Grid.SetRow(inputTextBox, 1);
-            grid.Children.Add(inputTextBox);
+            stackPanel.Children.Add(textBox);
 
+            // כפתורים
             var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(10)
+                HorizontalAlignment = HorizontalAlignment.Right
             };
 
             var okButton = new Button
             {
                 Content = "אישור",
-                Width = 75,
-                Height = 25,
-                Margin = new Thickness(5, 0, 0, 0),
+                Width = 80,
+                Height = 30,
+                Margin = new Thickness(0, 0, 10, 0),
                 IsDefault = true
             };
 
             var cancelButton = new Button
             {
                 Content = "ביטול",
-                Width = 75,
-                Height = 25,
+                Width = 80,
+                Height = 30,
                 IsCancel = true
             };
 
-            buttonPanel.Children.Add(cancelButton);
             buttonPanel.Children.Add(okButton);
+            buttonPanel.Children.Add(cancelButton);
+            stackPanel.Children.Add(buttonPanel);
 
-            Grid.SetRow(buttonPanel, 2);
-            grid.Children.Add(buttonPanel);
+            dialog.Content = stackPanel;
 
-            dialog.Content = grid;
-
-            string result = null;
-            okButton.Click += (s, e) =>
+            string? result = null;
+            okButton.Click += (s, e) => 
             {
-                result = inputTextBox.Text;
+                result = textBox.Text;
                 dialog.DialogResult = true;
             };
 
-            inputTextBox.Focus();
-            inputTextBox.SelectAll();
+            textBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter)
+                {
+                    result = textBox.Text;
+                    dialog.DialogResult = true;
+                }
+            };
 
-            if (dialog.ShowDialog() == true)
-                return result;
+            // מיקוד בתיבת הטקסט
+            textBox.Focus();
+            textBox.SelectAll();
 
-            return null;
+            return dialog.ShowDialog() == true ? result : null;
         }
 
-        public static string ShowMultiValueDialog(string title, string prompt, string defaultValues = "")
+        /// <summary>
+        /// הצגת דיאלוג לקבלת שני ערכים מהמשתמש
+        /// </summary>
+        public static (string? value1, string? value2) ShowTwoValuesDialog(string title, string prompt1, string prompt2, string defaultValue1 = "", string defaultValue2 = "")
         {
             var dialog = new Window
             {
                 Title = title,
                 Width = 450,
-                Height = 300,
+                Height = 250,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize
+                ResizeMode = ResizeMode.NoResize,
+                Owner = Application.Current.MainWindow
             };
 
-            var grid = new Grid();
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var promptLabel = new TextBlock
+            var stackPanel = new StackPanel
             {
-                Text = prompt,
-                Margin = new Thickness(10),
-                TextWrapping = TextWrapping.Wrap
+                Margin = new Thickness(20)
             };
-            Grid.SetRow(promptLabel, 0);
-            grid.Children.Add(promptLabel);
 
-            var inputTextBox = new TextBox
+            // השדה הראשון
+            var prompt1Label = new TextBlock
             {
-                Text = defaultValues,
-                Margin = new Thickness(10),
-                AcceptsReturn = true,
-                TextWrapping = TextWrapping.Wrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                Text = prompt1,
+                Margin = new Thickness(0, 0, 0, 5)
             };
-            Grid.SetRow(inputTextBox, 1);
-            grid.Children.Add(inputTextBox);
+            stackPanel.Children.Add(prompt1Label);
 
-            var helpLabel = new TextBlock
+            var textBox1 = new TextBox
             {
-                Text = "הפרד בין ערכים עם פסיק (,)",
-                Margin = new Thickness(10, 0, 10, 10),
-                FontStyle = FontStyles.Italic,
-                Foreground = System.Windows.Media.Brushes.Gray
+                Text = defaultValue1,
+                Margin = new Thickness(0, 0, 0, 15)
             };
-            Grid.SetRow(helpLabel, 2);
-            grid.Children.Add(helpLabel);
+            stackPanel.Children.Add(textBox1);
 
+            // השדה השני
+            var prompt2Label = new TextBlock
+            {
+                Text = prompt2,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            stackPanel.Children.Add(prompt2Label);
+
+            var textBox2 = new TextBox
+            {
+                Text = defaultValue2,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            stackPanel.Children.Add(textBox2);
+
+            // כפתורים
             var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(10)
+                HorizontalAlignment = HorizontalAlignment.Right
             };
 
             var okButton = new Button
             {
                 Content = "אישור",
-                Width = 75,
-                Height = 25,
-                Margin = new Thickness(5, 0, 0, 0),
+                Width = 80,
+                Height = 30,
+                Margin = new Thickness(0, 0, 10, 0),
                 IsDefault = true
             };
 
             var cancelButton = new Button
             {
                 Content = "ביטול",
-                Width = 75,
-                Height = 25,
+                Width = 80,
+                Height = 30,
                 IsCancel = true
             };
 
-            buttonPanel.Children.Add(cancelButton);
             buttonPanel.Children.Add(okButton);
+            buttonPanel.Children.Add(cancelButton);
+            stackPanel.Children.Add(buttonPanel);
 
-            Grid.SetRow(buttonPanel, 3);
-            grid.Children.Add(buttonPanel);
+            dialog.Content = stackPanel;
 
-            dialog.Content = grid;
+            string? result1 = null;
+            string? result2 = null;
 
-            string result = null;
-            okButton.Click += (s, e) =>
+            okButton.Click += (s, e) => 
             {
-                result = inputTextBox.Text;
+                result1 = textBox1.Text;
+                result2 = textBox2.Text;
                 dialog.DialogResult = true;
             };
 
-            inputTextBox.Focus();
+            textBox1.Focus();
+            textBox1.SelectAll();
 
-            if (dialog.ShowDialog() == true)
-                return result;
-
-            return null;
+            return dialog.ShowDialog() == true ? (result1, result2) : (null, null);
         }
 
-        public static Dictionary<string, string> ShowValueMappingDialog(string title, string columnName)
+        /// <summary>
+        /// הצגת דיאלוג לבחירה מרשימה
+        /// </summary>
+        public static string? ShowSelectionDialog(string title, string prompt, IEnumerable<string> options)
         {
             var dialog = new Window
             {
                 Title = title,
-                Width = 500,
-                Height = 400,
+                Width = 400,
+                Height = 300,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.CanResize
+                ResizeMode = ResizeMode.NoResize,
+                Owner = Application.Current.MainWindow
             };
 
-            var grid = new Grid();
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var stackPanel = new StackPanel
+            {
+                Margin = new Thickness(20)
+            };
 
+            // הוספת טקסט ההנחיה
             var promptLabel = new TextBlock
             {
-                Text = $"הגדר החלפת ערכים עבור העמודה '{columnName}':",
-                Margin = new Thickness(10),
-                FontWeight = FontWeights.Bold
-            };
-            Grid.SetRow(promptLabel, 0);
-            grid.Children.Add(promptLabel);
-
-            var instructionLabel = new TextBlock
-            {
-                Text = "הכנס זוג ערכים בכל שורה: ערך_ישן=ערך_חדש",
-                Margin = new Thickness(10, 0, 10, 10),
-                FontStyle = FontStyles.Italic,
-                Foreground = System.Windows.Media.Brushes.Gray
-            };
-            Grid.SetRow(instructionLabel, 1);
-            grid.Children.Add(instructionLabel);
-
-            var inputTextBox = new TextBox
-            {
-                Text = "זכר=M\nנקבה=F\nכן=1\nלא=0",
-                Margin = new Thickness(10),
-                AcceptsReturn = true,
+                Text = prompt,
                 TextWrapping = TextWrapping.Wrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                FontFamily = new System.Windows.Media.FontFamily("Consolas")
+                Margin = new Thickness(0, 0, 0, 10)
             };
-            Grid.SetRow(inputTextBox, 2);
-            grid.Children.Add(inputTextBox);
+            stackPanel.Children.Add(promptLabel);
 
-            var exampleLabel = new TextBlock
+            // רשימת בחירות
+            var listBox = new ListBox
             {
-                Text = "דוגמאות:\nזכר=M\nנקבה=F\nכן=True\nלא=False",
-                Margin = new Thickness(10, 0, 10, 10),
-                FontStyle = FontStyles.Italic,
-                Foreground = System.Windows.Media.Brushes.DarkGreen,
-                FontSize = 11
+                Height = 150,
+                Margin = new Thickness(0, 0, 0, 20)
             };
-            Grid.SetRow(exampleLabel, 3);
-            grid.Children.Add(exampleLabel);
 
+            foreach (var option in options)
+            {
+                listBox.Items.Add(option);
+            }
+
+            if (listBox.Items.Count > 0)
+                listBox.SelectedIndex = 0;
+
+            stackPanel.Children.Add(listBox);
+
+            // כפתורים
             var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(10)
+                HorizontalAlignment = HorizontalAlignment.Right
             };
 
             var okButton = new Button
             {
                 Content = "אישור",
-                Width = 75,
-                Height = 25,
-                Margin = new Thickness(5, 0, 0, 0),
+                Width = 80,
+                Height = 30,
+                Margin = new Thickness(0, 0, 10, 0),
                 IsDefault = true
             };
 
             var cancelButton = new Button
             {
                 Content = "ביטול",
-                Width = 75,
-                Height = 25,
+                Width = 80,
+                Height = 30,
                 IsCancel = true
             };
 
-            buttonPanel.Children.Add(cancelButton);
             buttonPanel.Children.Add(okButton);
+            buttonPanel.Children.Add(cancelButton);
+            stackPanel.Children.Add(buttonPanel);
 
-            Grid.SetRow(buttonPanel, 4);
-            grid.Children.Add(buttonPanel);
+            dialog.Content = stackPanel;
 
-            dialog.Content = grid;
-
-            Dictionary<string, string> result = null;
-            okButton.Click += (s, e) =>
+            string? result = null;
+            okButton.Click += (s, e) => 
             {
-                try
-                {
-                    result = ParseValueMapping(inputTextBox.Text);
-                    if (result != null && result.Count > 0)
-                    {
-                        dialog.DialogResult = true;
-                    }
-                    else
-                    {
-                        MessageBox.Show("נא להכניס לפחות זוג ערכים אחד בפורמט: ערך_ישן=ערך_חדש", 
-                                      "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"שגיאה בפורמט: {ex.Message}\n\nהשתמש בפורמט: ערך_ישן=ערך_חדש", 
-                                  "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                result = listBox.SelectedItem?.ToString();
+                dialog.DialogResult = true;
             };
 
-            inputTextBox.Focus();
-
-            if (dialog.ShowDialog() == true)
-                return result;
-
-            return null;
-        }
-
-        private static Dictionary<string, string> ParseValueMapping(string input)
-        {
-            var mapping = new Dictionary<string, string>();
-            
-            if (string.IsNullOrWhiteSpace(input))
-                return mapping;
-
-            var lines = input.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            
-            foreach (var line in lines)
+            listBox.MouseDoubleClick += (s, e) =>
             {
-                var trimmedLine = line.Trim();
-                if (string.IsNullOrEmpty(trimmedLine))
-                    continue;
+                result = listBox.SelectedItem?.ToString();
+                dialog.DialogResult = true;
+            };
 
-                var parts = trimmedLine.Split('=');
-                if (parts.Length == 2)
-                {
-                    var oldValue = parts[0].Trim();
-                    var newValue = parts[1].Trim();
-                    
-                    if (!string.IsNullOrEmpty(oldValue))
-                    {
-                        mapping[oldValue] = newValue;
-                    }
-                }
-                else
-                {
-                    throw new FormatException($"שורה לא תקינה: '{trimmedLine}'. השתמש בפורמט: ערך_ישן=ערך_חדש");
-                }
-            }
-
-            return mapping;
+            return dialog.ShowDialog() == true ? result : null;
         }
     }
 }
