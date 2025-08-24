@@ -146,21 +146,42 @@ namespace PipeWiseClient.Services
             CancellationToken ct = default)
         {
             using var form = new MultipartFormDataContent();
+            var addedAny = false;
 
             if (!string.IsNullOrWhiteSpace(filePath))
+            {
                 form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(filePath, ct)), "file", Path.GetFileName(filePath));
+                addedAny = true;
+            }
 
             if (overridesObj != null)
-                form.Add(new StringContent(JsonSerializer.Serialize(overridesObj), Encoding.UTF8, "application/json"), "overrides");
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(overridesObj,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                form.Add(new StringContent(json, Encoding.UTF8, "application/json"), "overrides");
+                addedAny = true;
+            }
 
             if (report != null)
-                form.Add(new StringContent(JsonSerializer.Serialize(report), Encoding.UTF8, "application/json"), "report_settings");
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(report,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                form.Add(new StringContent(json, Encoding.UTF8, "application/json"), "report_settings");
+                addedAny = true;
+            }
+
+            // ✅ אם אין חלקים — הוסף no-op כדי לרצות את ה-parser של multipart
+            if (!addedAny)
+                form.Add(new StringContent("1"), "noop");
 
             var res = await _http.PostAsync($"pipelines/{id}/run", form, ct);
-            res.EnsureSuccessStatusCode();
-            var body = await res.Content.ReadFromJsonAsync<RunPipelineResult>(cancellationToken: ct);
+            var text = await res.Content.ReadAsStringAsync(ct);
+            if (!res.IsSuccessStatusCode)
+                throw new HttpRequestException($"Server error ({(int)res.StatusCode} {res.StatusCode}): {text}");
+            var body = System.Text.Json.JsonSerializer.Deserialize<RunPipelineResult>(text);
             return body ?? throw new InvalidOperationException("Empty or invalid server response for RunPipelineByIdAsync.");
         }
+
 
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
         // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
