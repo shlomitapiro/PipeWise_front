@@ -125,11 +125,11 @@
 
     <Grid x:Name="MainGrid" Background="#F5F6FA" Margin="10">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>                    <!-- 0: אזור בחירת קובץ -->
-            <RowDefinition Height="Auto"/>                    <!-- 1: ריווח / מרווח קטן -->
-            <RowDefinition Height="2*" MinHeight="200"/>      <!-- 2: אזור עמודות ופעולות (ניתן לשינוי) -->
-            <RowDefinition Height="Auto"/>                    <!-- 3: GridSplitter -->
-            <RowDefinition Height="1*" MinHeight="150"/>      <!-- 4: מכל = כפתורים (Auto) + התראות (*) -->
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="2*" MinHeight="200"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1*" MinHeight="150"/>
         </Grid.RowDefinitions>
 
         <!-- אזור בחירת קובץ -->
@@ -146,7 +146,8 @@
                              Text="לא נבחר קובץ"
                              FontSize="12"
                              Foreground="#7F8C8D"/>
-                    <Button Content="📂 בחר קובץ" 
+                    <Button x:Name="BrowseFileBtn"
+                            Content="📂 בחר קובץ" 
                             Click="BrowseFile_Click" 
                             Style="{StaticResource ModernButton}" 
                             Margin="10,0,0,0" Height="35"/>
@@ -157,8 +158,21 @@
                            Foreground="#7F8C8D" 
                            FontStyle="Italic" 
                            Margin="0,5,0,0"/>
+
+                <!-- בחירת סוג קובץ יעד -->
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="סוג קובץ יעד:" 
+                            VerticalAlignment="Center" 
+                            Margin="0,0,8,0" 
+                            Foreground="#2C3E50"/>
+                    <ComboBox x:Name="TargetTypeComboBox" Width="180" Height="30" SelectedIndex="0">
+                        <ComboBoxItem Content="CSV" Tag="csv"/>
+                        <ComboBoxItem Content="JSON" Tag="json"/>
+                        <ComboBoxItem Content="XML" Tag="xml"/>
+                        <ComboBoxItem Content="Excel (XLSX)" Tag="excel"/>
+                    </ComboBox>
+                </StackPanel>
                            
-                <!-- הערה על סוגי קבצים נתמכים -->
                 <TextBlock Text="סוגי קבצים נתמכים: CSV, JSON, XML, Excel (XLSX/XLS)" 
                            Foreground="#95A5A6" 
                            FontSize="11" 
@@ -166,10 +180,10 @@
             </StackPanel>
         </Border>
 
-        <!-- מרווח קטן (אופציונלי) -->
+        <!-- מרווח קטן -->
         <Border Grid.Row="1" Background="Transparent" Height="2"/>
 
-        <!-- אזור עמודות ופעולות - עם יכולת שינוי גודל -->
+        <!-- אזור עמודות ופעולות -->
         <Border Grid.Row="2" Style="{StaticResource ColumnPanel}">
             <Grid>
                 <Grid.RowDefinitions>
@@ -177,7 +191,6 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 
-                <!-- כותרת עם אינדיקטור שינוי גודל -->
                 <Border Grid.Row="0" 
                         Background="#F8F9FA" 
                         Padding="10,8" 
@@ -211,7 +224,6 @@
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <!-- הודעה כאשר אין קובץ -->
                         <TextBlock x:Name="NoFileMessageTextBlock" 
                                    Text="בחר קובץ כדי להציג את העמודות הזמינות" 
                                    FontSize="14" 
@@ -220,7 +232,6 @@
                                    Margin="0,50,0,0"
                                    Visibility="Visible"/>
                         
-                        <!-- פאנל פעולות גלובליות -->
                         <Border x:Name="GlobalOperationsPanel" 
                                 Style="{StaticResource ColumnPanel}"
                                 Background="#F0F8FF"
@@ -247,7 +258,6 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- פאנל עמודות דינמי -->
                         <ScrollViewer x:Name="ColumnsScrollViewer" 
                                       VerticalScrollBarVisibility="Auto"
                                       Visibility="Collapsed"
@@ -259,16 +269,16 @@
             </Grid>
         </Border>
 
-        <!-- GridSplitter לשינוי גודל בין אזור העמודות למכל (כפתורים+התראות) -->
+        <!-- GridSplitter -->
         <GridSplitter Grid.Row="3" 
                       Style="{StaticResource CustomGridSplitter}"
                       ToolTip="גרור כדי לשנות את גודל האזורים"/>
 
-        <!-- מכל תחתון: כפתורי פעולה (Auto) + אזור התראות (*) -->
+        <!-- מכל תחתון -->
         <Grid Grid.Row="4">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>   <!-- כפתורי פעולה -->
-                <RowDefinition Height="*"/>      <!-- אזור התראות -->
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
             <!-- כפתורי פעולה -->
@@ -278,52 +288,51 @@
                     Margin="0,15,0,15"
                     ItemHeight="42" ItemWidth="Auto">
 
-            <!-- איפוס -->
-            <Button Content="אפס הגדרות"
+            <Button x:Name="ResetSettingsBtn"
+                    Content="אפס הגדרות"
                     Style="{StaticResource Btn.Reset}"
                     Tag="&#xE72C;"
                     Click="ResetSettings_Click"/>
 
-            <!-- דוחות -->
-            <Button Content="צפה בדוחות"
+            <Button x:Name="ViewReportsBtn"
+                    Content="צפה בדוחות"
                     Style="{StaticResource Btn.Reports}"
                     Tag="&#xE9D2;"
                     Click="ViewReports_Click"/>
 
-            <!-- בחר פייפליין שמור -->
-            <Button Content="בחר פייפליין שמור"
+            <Button x:Name="RunSavedPipelineBtn"
+                    Content="בחר פייפליין שמור"
                     Style="{StaticResource Btn.ChoosePipeline}"
                     Tag="&#xE838;"
                     Click="RunSavedPipeline_Click"/>
 
-            <!-- שמור פייפליין לשרת -->
-            <Button Content="שמור פייפליין"
+            <Button x:Name="SaveAsServerPipelineBtn"
+                    Content="שמור פייפליין"
                     Style="{StaticResource Btn.SavePipeline}"
                     Tag="&#xE898;"
                     Click="SaveAsServerPipeline_Click"/>
 
-            <!-- טען קונפיגורציה -->
-            <Button Content="טען קונפיגורציה"
+            <Button x:Name="LoadConfigBtn"
+                    Content="טען קונפיגורציה"
                     Style="{StaticResource Btn.LoadConfig}"
                     Tag="&#xE8E5;"
                     Click="LoadConfig_Click"/>
 
-            <!-- שמור קונפיגורציה -->
-            <Button Content="שמור קונפיגורציה"
+            <Button x:Name="SaveConfigBtn"
+                    Content="שמור קונפיגורציה"
                     Style="{StaticResource Btn.SaveConfig}"
                     Tag="&#xE74E;"
                     Click="SaveConfig_Click"/>
 
-            <!-- הרץ Pipeline -->
-            <Button Content="הרץ Pipeline"
+            <Button x:Name="RunBtn"
+                    Content="הרץ Pipeline"
                     Style="{StaticResource Btn.Run}"
                     Tag="&#xE768;"
                     FontSize="14"
                     Click="RunPipeline_Click"/>
             </WrapPanel>
 
-
-            <!-- אזור התראות מתקדם - עם יכולת שינוי גודל -->
+            <!-- אזור התראות -->
             <Border Grid.Row="1" 
                     Background="#F8F9FA" 
                     BorderBrush="#DEE2E6" 
@@ -331,7 +340,6 @@
                     CornerRadius="8" 
                     Padding="0">
                 
-                <!-- כותרת האזור -->
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -339,7 +347,6 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Header עם כותרת וכפתורי פעולה -->
                     <Border Grid.Row="0" 
                             Background="#343A46" 
                             CornerRadius="8,8,0,0" 
@@ -370,7 +377,6 @@
                                                Foreground="White"/>
                                 </Border>
                                 
-                                <!-- אינדיקטור שינוי גודל -->
                                 <StackPanel Orientation="Horizontal" 
                                             Margin="15,0,0,0"
                                             VerticalAlignment="Center">
@@ -454,7 +460,6 @@
                         </Grid>
                     </Border>
 
-                    <!-- תוכן ההתראות -->
                     <ScrollViewer x:Name="NotificationsScrollViewer"
                                   Grid.Row="1" 
                                   VerticalScrollBarVisibility="Auto"
@@ -462,8 +467,6 @@
                                   Padding="0">
                         
                         <StackPanel x:Name="NotificationsPanel" Margin="0">
-                            
-                            <!-- הודעת ברירת מחדל -->
                             <Border x:Name="DefaultMessageBorder" 
                                     Background="White" 
                                     Padding="20"
@@ -486,11 +489,9 @@
                                                Margin="0,5,0,0"/>
                                 </StackPanel>
                             </Border>
-                            
                         </StackPanel>
                     </ScrollViewer>
 
-                    <!-- שורת סטטוס תחתונה -->
                     <Border Grid.Row="2" 
                             Background="#E9ECEF" 
                             CornerRadius="0,0,8,8" 
