@@ -24,6 +24,31 @@ namespace PipeWiseClient.Services
         }
 
         public void Dispose() => _http.Dispose();
+        
+
+        // ------------------ Jobs API (Start → Progress → Result) ------------------
+        public async Task<RunStartResponse> StartRunAsync(object pipelineConfig, CancellationToken ct = default)
+        {
+            using var payload = JsonContent.Create(pipelineConfig);
+            var res = await _http.PostAsync("runs", payload, ct);
+            res.EnsureSuccessStatusCode();
+            var dto = await res.Content.ReadFromJsonAsync<RunStartResponse>(cancellationToken: ct);
+            if (dto == null || string.IsNullOrWhiteSpace(dto.RunId))
+                throw new InvalidOperationException("Server did not return a valid run_id.");
+            return dto;
+        }
+
+        public async Task<RunProgressResponse> GetRunProgressAsync(string runId, CancellationToken ct = default)
+        {
+            var dto = await _http.GetFromJsonAsync<RunProgressResponse>($"runs/{runId}/progress", ct);
+            return dto ?? new RunProgressResponse { Status = "unknown", Percent = 0 };
+        }
+
+        public async Task<RunResultEnvelope?> GetRunResultAsync(string runId, CancellationToken ct = default)
+        {
+            return await _http.GetFromJsonAsync<RunResultEnvelope>($"runs/{runId}/result", ct);
+        }
+
 
         // ------------------ Reports ------------------
 
@@ -62,6 +87,18 @@ namespace PipeWiseClient.Services
             var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<CleanupResponse>(json);
             return parsed?.CleanupResult;
         }
+
+        public async Task<bool> DownloadReportToFileAsync(string reportId, string fileType, string destinationPath, CancellationToken ct = default)
+        {
+            using var res = await _http.GetAsync($"reports/{reportId}/download?file_type={fileType}",
+                                                HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!res.IsSuccessStatusCode) return false;
+            await using var input = await res.Content.ReadAsStreamAsync(ct);
+            await using var output = File.Create(destinationPath);
+            await input.CopyToAsync(output, ct);
+            return true;
+        }
+
 
         // ------------------ Pipelines (saved) ------------------
 
@@ -150,7 +187,9 @@ namespace PipeWiseClient.Services
 
             if (!string.IsNullOrWhiteSpace(filePath))
             {
-                form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(filePath, ct)), "file", Path.GetFileName(filePath));
+                await using var fs = File.OpenRead(filePath);
+                var fileContent = new StreamContent(fs);
+                form.Add(fileContent, "file", Path.GetFileName(filePath));
                 addedAny = true;
             }
 
@@ -182,6 +221,40 @@ namespace PipeWiseClient.Services
             return body ?? throw new InvalidOperationException("Empty or invalid server response for RunPipelineByIdAsync.");
         }
 
+        public async Task<RunPipelineResult> RunWithProgressAsync(
+            object pipelineConfig,
+            IProgress<(string Status, int Percent)>? progress = null,
+            TimeSpan? pollInterval = null,
+            CancellationToken ct = default)
+        {
+            var start = await StartRunAsync(pipelineConfig, ct);
+            var interval = pollInterval ?? TimeSpan.FromMilliseconds(500);
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var pr = await GetRunProgressAsync(start.RunId, ct);
+                    progress?.Report((pr.Status ?? "unknown", pr.Percent ?? 0));
+                    if (pr.Status == "completed" || pr.Status == "failed")
+                        break;
+                }
+                catch (HttpRequestException) { /* רשת זמנית — ננסה שוב */ }
+                await Task.Delay(interval, ct);
+            }
+
+            var final = await GetRunResultAsync(start.RunId, ct)
+                ?? throw new InvalidOperationException("Missing run result.");
+            if (string.Equals(final.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            {
+                var err = final.Result?.message; // או .Message אם זה PascalCase אצלך
+                throw new InvalidOperationException(!string.IsNullOrWhiteSpace(err) ? err : "Run failed.");
+            }
+
+            return final.Result ?? new RunPipelineResult();
+        }
+
 
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
         // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
@@ -190,7 +263,9 @@ namespace PipeWiseClient.Services
         {
             using var form = new MultipartFormDataContent();
 
-            form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(filePath, ct)), "file", Path.GetFileName(filePath));
+            await using var fs = File.OpenRead(filePath);
+            var fileContent = new StreamContent(fs);
+            form.Add(fileContent, "file", Path.GetFileName(filePath));
 
             var cfgJson = Newtonsoft.Json.JsonConvert.SerializeObject(config);
             form.Add(new StringContent(cfgJson, Encoding.UTF8, "application/json"), "config");

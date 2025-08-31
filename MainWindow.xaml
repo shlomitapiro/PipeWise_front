@@ -507,6 +507,18 @@
                                            Text="🟢 המערכת פועלת תקין" 
                                            FontSize="11" 
                                            Foreground="#495057"/>
+
+                                <ProgressBar x:Name="RunProgressBar"
+                                        Width="180" Height="8"
+                                        Minimum="0" Maximum="100" Value="0"
+                                        Margin="10,0,0,0"
+                                        Visibility="Collapsed"/>
+                                <TextBlock x:Name="RunProgressText"
+                                        Text="0%"
+                                        FontSize="10"
+                                        Foreground="#495057"
+                                        Margin="6,0,0,0"
+                                        Visibility="Collapsed"/>
                             </StackPanel>
 
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
@@ -517,6 +529,13 @@
                                            Text="אין עדכונים" 
                                            FontSize="10" 
                                            Foreground="#6C757D"/>
+                                <Button x:Name="CancelRunBtn"
+                                            Content="בטל ריצה"
+                                            Style="{StaticResource ActionBarButton}"
+                                            Height="28" MinWidth="110"
+                                            Margin="10,0,0,0"
+                                            Click="CancelRun_Click"
+                                            IsEnabled="False"/>
                             </StackPanel>
                         </Grid>
                     </Border>

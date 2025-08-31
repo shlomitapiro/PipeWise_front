@@ -13,6 +13,7 @@ using System.Windows.Media.Animation;
 using Microsoft.Win32;
 using Newtonsoft.Json;
 using OfficeOpenXml;
+using System.Threading;
 
 using PipeWiseClient.Helpers;
 using PipeWiseClient.Models;
@@ -38,6 +39,8 @@ namespace PipeWiseClient
         private const int MAX_NOTIFICATIONS = 50;
 
         private bool _isApplyingConfig = false;
+
+        private CancellationTokenSource? _runCts;
 
         // ====== ניהול סטייט כללי ל-Enable/Disable כפתורים ======
         private UiPhase _phase = UiPhase.Idle;
@@ -100,7 +103,13 @@ namespace PipeWiseClient
         {
             _phase = next;
             UpdateUiByPhase();
+
+            // Progress & Cancel visibility
+            if (RunProgressBar != null) RunProgressBar.Visibility = _phase == UiPhase.Running ? Visibility.Visible : Visibility.Collapsed;
+            if (RunProgressText != null) RunProgressText.Visibility = _phase == UiPhase.Running ? Visibility.Visible : Visibility.Collapsed;
+            Btn("CancelRunBtn").Let(b => b.IsEnabled = _phase == UiPhase.Running);
         }
+
 
         private void UpdateUiByPhase()
         {
@@ -1327,15 +1336,17 @@ namespace PipeWiseClient
             }
         }
 
+        private void CancelRun_Click(object sender, RoutedEventArgs e)
+        {
+            _runCts?.Cancel();
+            AddInfoNotification("ביטול", "הריצה מתבטלת…");
+        }
+
         private async void RunSavedPipeline_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                var picker = new PipeWiseClient.Windows.PipelinePickerWindow
-                {
-                    Owner = this
-                };
-
+                var picker = new PipeWiseClient.Windows.PipelinePickerWindow { Owner = this };
                 var ok = picker.ShowDialog() == true && picker.SelectedPipeline != null;
                 if (!ok)
                 {
@@ -1344,42 +1355,42 @@ namespace PipeWiseClient
                 }
 
                 var p = picker.SelectedPipeline!;
-
-                var confirm = MessageBox.Show(
-                    $"פייפליין \"{p.name}\" נבחר.\n\n" +
-                    $"בלחיצה על 'אישור' תתבצע הרצה של הפייפליין.\n" +
-                    $"בלחיצה על 'ביטול' הבחירה תבוטל ולא תתבצע הרצה.",
-                    "אישור הרצת פייפליין",
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.OK);
-
-                if (confirm != MessageBoxResult.OK)
-                {
-                    AddInfoNotification("בחירה בוטלה", $"הפייפליין '{p.name}' לא הורץ.");
-                    return;
-                }
-
                 SetPhase(UiPhase.Running);
-                UpdateSystemStatus("מריץ פייפליין שמור…", true);
+                UpdateSystemStatus($"מריץ '{p.name}'…", true);
                 AddInfoNotification("הרצה", $"מריץ את '{p.name}'");
 
-                var runResult = await _api.RunPipelineByIdAsync(p.id, filePath: null);
+                _runCts = new CancellationTokenSource();
+                RunProgressBar.Value = 0; RunProgressText.Text = "0%";
+                var progress = new Progress<(string Status, int Percent)>(pr =>
+                {
+                    RunProgressBar.Value = pr.Percent;
+                    RunProgressText.Text = $"{pr.Percent}%";
+                    SystemStatusText.Text = $"🟢 {pr.Status} ({pr.Percent}%)";
+                });
+
+                // שליפת ההגדרה המלאה
+                var full = await _api.GetPipelineAsync(p.id);
+                if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
+
+                RunPipelineResult runResult;
+                try
+                {
+                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    AddInfoNotification("בוטל", "המשתמש ביטל את הריצה.");
+                    UpdateSystemStatus("הריצה בוטלה", false);
+                    return;
+                }
 
                 AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
                 UpdateSystemStatus("המערכת פועלת תקין", true);
 
                 if (!string.IsNullOrWhiteSpace(runResult?.TargetPath))
                 {
-                    try
-                    {
-                        System.Diagnostics.Process.Start("explorer.exe", "/select," + runResult.TargetPath);
-                        AddSuccessNotification("הריצה הצליחה", $"הקובץ נוצר ב:\n{runResult.TargetPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        AddErrorNotification("הריצה הצליחה", $"הקובץ נוצר, אך פתיחת התיקיה נכשלה.\n{runResult.TargetPath}\n\n{ex.Message}");
-                    }
+                    try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{runResult.TargetPath}\""); }
+                    catch (Exception ex) { AddErrorNotification("פתיחת תיקיה נכשלה", runResult.TargetPath, ex.Message); }
                 }
 
                 _hasLastRunReport = true;
@@ -1402,14 +1413,11 @@ namespace PipeWiseClient
             {
                 if (string.IsNullOrWhiteSpace(FilePathTextBox!.Text) || !File.Exists(FilePathTextBox.Text))
                 {
-                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור קיים לפני הרצת Pipeline");
+                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור קיים לפני הרצה");
                     return;
                 }
 
-                SetPhase(UiPhase.Running);
-                UpdateSystemStatus("מעבד נתונים...", true);
-                AddInfoNotification("התחלת עיבוד", "מריץ Pipeline...");
-
+                // בונים קונפיג כרגיל
                 var cfg = _loadedConfig ?? BuildPipelineConfig();
                 if (cfg?.Source == null || cfg.Target == null)
                 {
@@ -1417,16 +1425,47 @@ namespace PipeWiseClient
                     SetPhase(_hasFile ? UiPhase.FileSelected : UiPhase.Idle);
                     return;
                 }
-
                 cfg.Source.Path = FilePathTextBox.Text;
-
                 EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
 
-                var result = await _api.RunAdHocPipelineAsync(
-                    filePath: FilePathTextBox.Text,
-                    config: cfg,
-                    report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false }
-                );
+                // UI → Running
+                SetPhase(UiPhase.Running);
+                UpdateSystemStatus("מעבד נתונים…", true);
+                RunProgressBar.Value = 0;
+                RunProgressText.Text = "0%";
+                _runCts = new CancellationTokenSource();
+
+                var progress = new Progress<(string Status, int Percent)>(p =>
+                {
+                    RunProgressBar.Value = p.Percent;
+                    RunProgressText.Text = $"{p.Percent}%";
+                    SystemStatusText.Text = $"🟢 {p.Status} ({p.Percent}%)";
+                });
+
+                RunPipelineResult result;
+
+                try
+                {
+                    // ניסיון לרוץ במודל Jobs (Start→Progress→Result)
+                    result = await _api.RunWithProgressAsync(cfg, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    AddInfoNotification("בוטל", "המשתמש ביטל את הריצה.");
+                    UpdateSystemStatus("הריצה בוטלה", false);
+                    return;
+                }
+                catch
+                {
+                    // נפילה חכמה ל-Ad-hoc (מעלה את הקובץ) אם השרת לא נגיש לקובץ בנתיב המקומי
+                    AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (העלאת קובץ).");
+                    result = await _api.RunAdHocPipelineAsync(
+                        filePath: FilePathTextBox.Text,
+                        config: cfg,
+                        report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false },
+                        ct: _runCts.Token
+                    );
+                }
 
                 AddSuccessNotification("Pipeline הושלם!", result.message);
 
@@ -1434,7 +1473,7 @@ namespace PipeWiseClient
                 {
                     try
                     {
-                        System.Diagnostics.Process.Start("explorer.exe", "/select," + result.TargetPath);
+                        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{result.TargetPath}\"");
                         AddInfoNotification("קובץ נוצר", $"הקובץ נוצר ב:\n{result.TargetPath}");
                     }
                     catch (Exception ex)
@@ -1444,7 +1483,6 @@ namespace PipeWiseClient
                 }
 
                 UpdateSystemStatus("המערכת פועלת תקין", true);
-
                 _hasLastRunReport = true;
                 SetPhase(UiPhase.Completed);
             }
@@ -1452,11 +1490,17 @@ namespace PipeWiseClient
             {
                 AddErrorNotification("שגיאה בהרצת Pipeline", ex.Message, ex.StackTrace);
                 UpdateSystemStatus("שגיאה במערכת", false);
-
-                SetPhase(_hasCompatibleConfig ? UiPhase.ConfigLoadedCompatible :
-                         _hasFile ? UiPhase.FileSelected : UiPhase.Idle);
+                SetPhase(_hasCompatibleConfig ? UiPhase.ConfigLoadedCompatible : _hasFile ? UiPhase.FileSelected : UiPhase.Idle);
+            }
+            finally
+            {
+                _runCts?.Dispose();
+                _runCts = null;
+                if (RunProgressBar != null) RunProgressBar.Value = 0;
+                if (RunProgressText != null) RunProgressText.Text = "0%";
             }
         }
+
 
         private PipelineConfig? BuildPipelineConfig()
         {
