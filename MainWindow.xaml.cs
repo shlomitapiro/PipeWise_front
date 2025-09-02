@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -11,6 +13,7 @@ using System.Windows.Media.Animation;
 using Microsoft.Win32;
 using Newtonsoft.Json;
 using OfficeOpenXml;
+using System.Threading;
 
 using PipeWiseClient.Helpers;
 using PipeWiseClient.Models;
@@ -18,8 +21,6 @@ using PipeWiseClient.Services;
 using PipeWiseClient.Windows;
 using System.Text.Json;
 using Newtonsoft.Json.Linq;
-
-
 
 namespace PipeWiseClient
 {
@@ -39,9 +40,18 @@ namespace PipeWiseClient
 
         private bool _isApplyingConfig = false;
 
+        private CancellationTokenSource? _runCts;
+
+        // ====== ניהול סטייט כללי ל-Enable/Disable כפתורים ======
+        private UiPhase _phase = UiPhase.Idle;
+        private bool _hasCompatibleConfig = false;
+        private bool _hasLastRunReport = false;
+
+        private bool _hasFile => !string.IsNullOrWhiteSpace(FilePathTextBox?.Text) && File.Exists(FilePathTextBox.Text);
+
         // הגדרות לשמירת גדלי אזורים
         private const string SETTINGS_FILE = "ui_settings.json";
-        
+
         // מבנה הגריד:
         // Row 0: אזור בחירת קובץ (Auto)
         // Row 1: ריווח (Auto) 
@@ -49,30 +59,104 @@ namespace PipeWiseClient
         // Row 3: כפתורי פעולה (Auto - גודל קבוע)
         // Row 4: GridSplitter
         // Row 5: אזור התראות (1* - ניתן לשינוי)
-        
+
         public MainWindow()
         {
             try
             {
                 InitializeComponent();
-                
+
                 // אתחול EPPlus
                 ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-                
+
                 // טען הגדרות גדלי אזורים
                 LoadUISettings();
-                
+
                 // הוספת הודעת ברכה
                 AddInfoNotification("ברוך הבא ל-PipeWise", "המערכת מוכנה לעיבוד נתונים");
-                
-                // הוסף מאזיני אירועים לשמירת הגדרות
+
+                // מאזין אירוע סגירה
                 this.Closing += MainWindow_Closing;
+
+                // סטייט התחלתי
+                SetPhase(UiPhase.Idle);
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"שגיאה באתחול החלון: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        #region ===== UI Phase Management =====
+
+        public enum UiPhase
+        {
+            Idle,                   // אין קובץ/קונפיג
+            FileSelected,           // נבחר קובץ
+            ConfigLoadedCompatible, // נטען קובץ + קונפיג תואם
+            ConfigLoadedMismatch,   // נטען קובץ + קונפיג לא תואם
+            Running,                // תהליך בעבודה
+            Completed               // ריצה הסתיימה (יש דוח/פלט)
+        }
+
+        private void SetPhase(UiPhase next)
+        {
+            _phase = next;
+            UpdateUiByPhase();
+
+            // Progress & Cancel visibility
+            if (RunProgressBar != null) RunProgressBar.Visibility = _phase == UiPhase.Running ? Visibility.Visible : Visibility.Collapsed;
+            if (RunProgressText != null) RunProgressText.Visibility = _phase == UiPhase.Running ? Visibility.Visible : Visibility.Collapsed;
+            Btn("CancelRunBtn").Let(b => b.IsEnabled = _phase == UiPhase.Running);
+        }
+
+
+        private void UpdateUiByPhase()
+        {
+            // מאתרים כפתורים לפי x:Name (אם לא קיימים — מתעלמים)
+            Btn("BrowseFileBtn").Let((Button b) =>
+                b.IsEnabled = _phase is UiPhase.Idle or UiPhase.FileSelected or UiPhase.ConfigLoadedCompatible or UiPhase.ConfigLoadedMismatch or UiPhase.Completed);
+
+            Btn("LoadConfigBtn").Let((Button b) =>
+                b.IsEnabled = _hasFile && _phase != UiPhase.Running);
+
+            Btn("SaveConfigBtn").Let((Button b) =>
+                b.IsEnabled = _hasFile && _phase != UiPhase.Running);
+
+            Btn("RunBtn").Let((Button b) =>
+            {
+                var canRun =
+                    _hasFile &&
+                    _phase != UiPhase.Running &&
+                    // מרשה ריצה אד-הוק אם אין קונפיג טעון או אם יש קונפיג תואם
+                    (_loadedConfig == null || _hasCompatibleConfig);
+
+                b.IsEnabled = canRun;
+
+                b.ToolTip = canRun ? null :
+                    (!_hasFile ? "יש לבחור קובץ לפני הרצה"
+                     : (_loadedConfig != null && !_hasCompatibleConfig ? "הקונפיגורציה אינה תואמת לקובץ" : "הפעולה אינה זמינה כעת"));
+            });
+
+            Btn("RunSavedPipelineBtn").Let((Button b) =>
+                b.IsEnabled = _phase != UiPhase.Running);
+
+            Btn("SaveAsServerPipelineBtn").Let((Button b) =>
+                b.IsEnabled = (_hasFile || _loadedConfig != null) && _phase != UiPhase.Running);
+
+            Btn("ViewReportsBtn").Let((Button b) =>
+                b.IsEnabled = _hasLastRunReport && _phase != UiPhase.Running);
+
+            Btn("ResetSettingsBtn").Let((Button b) =>
+                b.IsEnabled = _phase != UiPhase.Running);
+
+            // עכבר בזמן ריצה
+            this.Cursor = _phase == UiPhase.Running ? System.Windows.Input.Cursors.AppStarting : null;
+        }
+
+        private Button? Btn(string name) => FindName(name) as Button;
+
+        #endregion
 
         #region ניהול הגדרות ממשק
 
@@ -97,9 +181,8 @@ namespace PipeWiseClient
             {
                 var settings = new UISettings
                 {
-                    // שמור את היחס בין האזורים - עכשיו עם המיקומים הנכונים
-                    OperationsAreaHeight = GetGridRowHeight(2), // אזור עמודות ופעולות
-                    NotificationsAreaHeight = GetGridRowHeight(5), // אזור התראות
+                    OperationsAreaHeight = GetGridRowHeight(2),
+                    NotificationsAreaHeight = GetGridRowHeight(5),
                     NotificationsCollapsed = _notificationsCollapsed,
                     WindowWidth = this.Width,
                     WindowHeight = this.Height
@@ -110,7 +193,6 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                // שגיאה בשמירת הגדרות - לא קריטית
                 AddWarningNotification("שמירת הגדרות", "לא ניתן לשמור הגדרות ממשק", ex.Message);
             }
         }
@@ -130,11 +212,9 @@ namespace PipeWiseClient
 
                 if (settings != null)
                 {
-                    // החזר גדלי אזורים - עכשיו עם המיקומים הנכונים
-                    SetGridRowHeight(2, settings.OperationsAreaHeight); // אזור עמודות ופעולות
-                    SetGridRowHeight(5, settings.NotificationsAreaHeight); // אזור התראות
-                    
-                    // החזר מצב כיווץ התראות
+                    SetGridRowHeight(2, settings.OperationsAreaHeight);
+                    SetGridRowHeight(5, settings.NotificationsAreaHeight);
+
                     _notificationsCollapsed = settings.NotificationsCollapsed;
                     if (_notificationsCollapsed && NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
                     {
@@ -142,45 +222,37 @@ namespace PipeWiseClient
                         CollapseNotificationsBtn.Content = "📂";
                     }
 
-                    // החזר גודל חלון
                     if (settings.WindowWidth > 0 && settings.WindowHeight > 0)
                     {
-                        this.Width = Math.Max(settings.WindowWidth, 600); // מינימום רוחב
-                        this.Height = Math.Max(settings.WindowHeight, 500); // מינימום גובה
+                        this.Width = Math.Max(settings.WindowWidth, 600);
+                        this.Height = Math.Max(settings.WindowHeight, 500);
                     }
                 }
             }
             catch (Exception ex)
             {
-                // שגיאה בטעינת הגדרות - לא קריטית, השתמש בברירות מחדל
                 AddWarningNotification("טעינת הגדרות", "לא ניתן לטעון הגדרות ממשק, נטענות ברירות מחדל", ex.Message);
             }
         }
 
-        /// <summary>
-        /// קבלת גובה שורה בגריד
-        /// </summary>
         private double GetGridRowHeight(int rowIndex)
         {
-            var grid = FindName("MainGrid") as Grid ?? 
+            var grid = FindName("MainGrid") as Grid ??
                       (this.Content as Grid);
-            
+
             if (grid != null && rowIndex < grid.RowDefinitions.Count)
             {
                 var rowDefinition = grid.RowDefinitions[rowIndex];
                 return rowDefinition.Height.Value;
             }
-            return 1.0; // ברירת מחדל
+            return 1.0;
         }
 
-        /// <summary>
-        /// הגדרת גובה שורה בגריד
-        /// </summary>
         private void SetGridRowHeight(int rowIndex, double height)
         {
-            var grid = FindName("MainGrid") as Grid ?? 
+            var grid = FindName("MainGrid") as Grid ??
                       (this.Content as Grid);
-            
+
             if (grid != null && rowIndex < grid.RowDefinitions.Count)
             {
                 var rowDefinition = grid.RowDefinitions[rowIndex];
@@ -188,38 +260,35 @@ namespace PipeWiseClient
             }
         }
 
-        /// <summary>
-        /// אירוע סגירת חלון - שמור הגדרות
-        /// </summary>
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             SaveUISettings();
         }
 
-        /// <summary>
-        /// איפוס הגדרות ממשק לברירת מחדל
-        /// </summary>
         public void ResetUIToDefault()
         {
             try
             {
-                // החזר גדלי אזורים לברירת מחדל - עכשיו עם המיקומים הנכונים
-                SetGridRowHeight(2, 2.0); // אזור עמודות - יחס 2
-                SetGridRowHeight(5, 1.0); // אזור התראות - יחס 1
-                
-                // החזר גודל חלון
+                SetGridRowHeight(2, 2.0);
+                SetGridRowHeight(5, 1.0);
+
                 this.Width = 900;
                 this.Height = 700;
-                
-                // החזר מצב התראות
+
                 if (NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
                 {
                     _notificationsCollapsed = false;
                     NotificationsScrollViewer.Visibility = Visibility.Visible;
                     CollapseNotificationsBtn.Content = "📦";
                 }
-                
+
                 AddSuccessNotification("איפוס ממשק", "ממשק המשתמש הוחזר לברירת מחדל");
+
+                // איפוס סטייט כללי
+                _loadedConfig = null;
+                _hasCompatibleConfig = false;
+                _hasLastRunReport = false;
+                SetPhase(UiPhase.Idle);
             }
             catch (Exception ex)
             {
@@ -231,9 +300,6 @@ namespace PipeWiseClient
 
         #region מערכת התראות
 
-        /// <summary>
-        /// סוגי התראות זמינים
-        /// </summary>
         public enum NotificationType
         {
             Success,
@@ -242,9 +308,6 @@ namespace PipeWiseClient
             Info
         }
 
-        /// <summary>
-        /// מודל התראה
-        /// </summary>
         public class NotificationItem
         {
             public string Id { get; set; } = Guid.NewGuid().ToString();
@@ -256,41 +319,26 @@ namespace PipeWiseClient
             public string? Details { get; set; }
         }
 
-        /// <summary>
-        /// הוספת התראת הצלחה
-        /// </summary>
         public void AddSuccessNotification(string title, string message, string? details = null)
         {
             AddNotification(NotificationType.Success, title, message, details);
         }
 
-        /// <summary>
-        /// הוספת התראת שגיאה
-        /// </summary>
         public void AddErrorNotification(string title, string message, string? details = null)
         {
             AddNotification(NotificationType.Error, title, message, details);
         }
 
-        /// <summary>
-        /// הוספת התראת אזהרה
-        /// </summary>
         public void AddWarningNotification(string title, string message, string? details = null)
         {
             AddNotification(NotificationType.Warning, title, message, details);
         }
 
-        /// <summary>
-        /// הוספת התראת מידע
-        /// </summary>
         public void AddInfoNotification(string title, string message, string? details = null)
         {
             AddNotification(NotificationType.Info, title, message, details);
         }
 
-        /// <summary>
-        /// הוספת התראה כללית
-        /// </summary>
         private void AddNotification(NotificationType type, string title, string message, string? details = null)
         {
             var notification = new NotificationItem
@@ -302,9 +350,8 @@ namespace PipeWiseClient
                 IsDetailed = !string.IsNullOrEmpty(details)
             };
 
-            _notifications.Insert(0, notification); // הוסף בראש הרשימה
+            _notifications.Insert(0, notification);
 
-            // הגבל מספר התראות
             if (_notifications.Count > MAX_NOTIFICATIONS)
             {
                 _notifications.RemoveAt(_notifications.Count - 1);
@@ -313,48 +360,36 @@ namespace PipeWiseClient
             RefreshNotificationsDisplay();
         }
 
-        /// <summary>
-        /// רענון תצוגת ההתראות
-        /// </summary>
         private void RefreshNotificationsDisplay()
         {
             if (NotificationsPanel == null) return;
 
-            // נקה את התצוגה הקיימת
             NotificationsPanel.Children.Clear();
 
-            // הסתר הודעת ברירת מחדל אם יש התראות
             if (DefaultMessageBorder != null)
             {
                 DefaultMessageBorder.Visibility = _notifications.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
             }
 
-            // הוסף כל התראה
             foreach (var notification in _notifications)
             {
                 var notificationElement = CreateNotificationElement(notification);
                 NotificationsPanel.Children.Add(notificationElement);
             }
 
-            // עדכן מונה ההתראות
             UpdateNotificationCount();
-            
-            // עדכן זמן עדכון אחרון
+
             if (LastNotificationTimeText != null)
             {
                 LastNotificationTimeText.Text = DateTime.Now.ToString("HH:mm:ss");
             }
 
-            // גלול למעלה להתראה החדשה
             if (NotificationsScrollViewer != null)
             {
                 NotificationsScrollViewer.ScrollToTop();
             }
         }
 
-        /// <summary>
-        /// יצירת אלמנט התראה בודד
-        /// </summary>
         private Border CreateNotificationElement(NotificationItem notification)
         {
             var (icon, backgroundColor, borderColor, textColor) = GetNotificationStyle(notification.Type);
@@ -370,13 +405,12 @@ namespace PipeWiseClient
 
             var mainPanel = new StackPanel();
 
-            // שורה עליונה - אייקון, כותרת וזמן
             var headerPanel = new Grid();
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var leftPanel = new StackPanel { Orientation = Orientation.Horizontal };
-            
+
             var iconText = new TextBlock
             {
                 Text = icon,
@@ -412,7 +446,6 @@ namespace PipeWiseClient
 
             mainPanel.Children.Add(headerPanel);
 
-            // הודעה
             var messageText = new TextBlock
             {
                 Text = notification.Message,
@@ -424,7 +457,6 @@ namespace PipeWiseClient
 
             mainPanel.Children.Add(messageText);
 
-            // פרטים נוספים (אם יש)
             if (notification.IsDetailed && !string.IsNullOrEmpty(notification.Details))
             {
                 var detailsBorder = new Border
@@ -450,7 +482,6 @@ namespace PipeWiseClient
 
             border.Child = mainPanel;
 
-            // אנימציה של הופעה
             border.Opacity = 0;
             var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300));
             border.BeginAnimation(UIElement.OpacityProperty, fadeIn);
@@ -458,9 +489,6 @@ namespace PipeWiseClient
             return border;
         }
 
-        /// <summary>
-        /// קבלת סגנון התראה לפי סוג
-        /// </summary>
         private (string icon, string backgroundColor, string borderColor, string textColor) GetNotificationStyle(NotificationType type)
         {
             return type switch
@@ -473,15 +501,12 @@ namespace PipeWiseClient
             };
         }
 
-        /// <summary>
-        /// עדכון מונה ההתראות
-        /// </summary>
         private void UpdateNotificationCount()
         {
             if (NotificationCountBadge == null || NotificationCountText == null) return;
 
             var count = _notifications.Count;
-            
+
             if (count > 0)
             {
                 NotificationCountBadge.Visibility = Visibility.Visible;
@@ -493,9 +518,6 @@ namespace PipeWiseClient
             }
         }
 
-        /// <summary>
-        /// עדכון הודעת סטטוס המערכת
-        /// </summary>
         public void UpdateSystemStatus(string status, bool isHealthy = true)
         {
             if (SystemStatusText == null) return;
@@ -508,9 +530,6 @@ namespace PipeWiseClient
 
         #region אירועי ממשק
 
-        /// <summary>
-        /// ניקוי כל ההתראות
-        /// </summary>
         private void ClearNotifications_Click(object sender, RoutedEventArgs e)
         {
             if (_notifications.Count == 0)
@@ -529,15 +548,11 @@ namespace PipeWiseClient
             {
                 _notifications.Clear();
                 RefreshNotificationsDisplay();
-                
-                // הוסף הודעת אישור
+
                 AddSuccessNotification("הצלחה", "כל ההתראות נוקו");
             }
         }
 
-        /// <summary>
-        /// כיווץ/הרחבה של אזור ההתראות
-        /// </summary>
         private void ToggleNotifications_Click(object sender, RoutedEventArgs e)
         {
             if (NotificationsScrollViewer == null || CollapseNotificationsBtn == null) return;
@@ -557,7 +572,6 @@ namespace PipeWiseClient
                 AddInfoNotification("ממשק", "אזור ההתראות הורחב");
             }
 
-            // שמור הגדרה זו מיידית
             SaveUISettings();
         }
 
@@ -587,19 +601,25 @@ namespace PipeWiseClient
 
                 if (dialog.ShowDialog() == true)
                 {
-                    FilePathTextBox.Text = dialog.FileName;
+                    FilePathTextBox!.Text = dialog.FileName;
                     var fileInfo = new FileInfo(dialog.FileName);
-                    
-                    FileInfoTextBlock.Text = $"קובץ נבחר: {Path.GetFileName(dialog.FileName)} | גודל: {fileInfo.Length:N0} bytes";
-                    
+
+                    FileInfoTextBlock!.Text = $"קובץ נבחר: {Path.GetFileName(dialog.FileName)} | גודל: {fileInfo.Length:N0} bytes";
+
                     AddSuccessNotification(
-                        "קובץ נבחר", 
-                        $"נבחר: {Path.GetFileName(dialog.FileName)}", 
+                        "קובץ נבחר",
+                        $"נבחר: {Path.GetFileName(dialog.FileName)}",
                         $"גודל: {fileInfo.Length:N0} bytes\nנתיב: {dialog.FileName}"
                     );
 
-                    // טען עמודות אם זה אפשרי
+                    // בחירת קובץ חדש מנטרלת קונפיג טעון קודם (אם היה)
+                    _loadedConfig = null;
+                    _hasCompatibleConfig = false;
+                    _hasLastRunReport = false;
+
                     LoadFileColumns(dialog.FileName);
+
+                    SetPhase(UiPhase.FileSelected);
                 }
             }
             catch (Exception ex)
@@ -616,7 +636,7 @@ namespace PipeWiseClient
                 _columnSettings.Clear();
 
                 var extension = Path.GetExtension(filePath).ToLower();
-                
+
                 switch (extension)
                 {
                     case ".csv":
@@ -664,7 +684,7 @@ namespace PipeWiseClient
         {
             using var package = new ExcelPackage(new FileInfo(filePath));
             var worksheet = package.Workbook.Worksheets.First();
-            
+
             for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
             {
                 var cellValue = worksheet.Cells[1, col].Value?.ToString();
@@ -679,7 +699,7 @@ namespace PipeWiseClient
         {
             var jsonText = File.ReadAllText(filePath);
             var jsonArray = JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(jsonText);
-            
+
             if (jsonArray?.Count > 0)
             {
                 _columnNames = jsonArray[0].Keys.ToList();
@@ -702,6 +722,31 @@ namespace PipeWiseClient
             }
         }
 
+        private string GetSelectedTargetType()
+        {
+            try
+            {
+                if (TargetTypeComboBox?.SelectedItem is ComboBoxItem item &&
+                    item.Tag is string tag && !string.IsNullOrWhiteSpace(tag))
+                {
+                    return tag.ToLowerInvariant();
+                }
+            }
+            catch { /* ignore */ }
+            return "csv"; // ברירת מחדל תואמת להתנהגות הקודמת
+        }
+
+        private static string ExtForTarget(string targetType)
+        {
+            return targetType switch
+            {
+                "json" => "json",
+                "xml"  => "xml",
+                "excel" or "xlsx" => "xlsx",
+                _ => "csv"
+            };
+        }
+
         private Border CreateColumnPanel(string columnName)
         {
             var border = new Border
@@ -712,7 +757,6 @@ namespace PipeWiseClient
 
             var stackPanel = new StackPanel();
 
-            // כותרת העמודה
             var headerText = new TextBlock
             {
                 Text = $"📊 {columnName}",
@@ -723,10 +767,8 @@ namespace PipeWiseClient
             };
             stackPanel.Children.Add(headerText);
 
-            // פעולות זמינות
             var operationsPanel = new WrapPanel();
 
-            // פעולות ניקוי
             var cleaningGroup = CreateOperationGroup("🧹 ניקוי", new[]
             {
                 ("הסר אם ריק", "remove_if_missing"),
@@ -735,7 +777,6 @@ namespace PipeWiseClient
             }, columnName);
             operationsPanel.Children.Add(cleaningGroup);
 
-            // פעולות טרנספורמציה
             var transformGroup = CreateOperationGroup("🔄 טרנספורמציה", new[]
             {
                 ("הפוך לאותיות גדולות", "to_uppercase"),
@@ -744,7 +785,6 @@ namespace PipeWiseClient
             }, columnName);
             operationsPanel.Children.Add(transformGroup);
 
-            // פעולות אימות
             var validationGroup = CreateOperationGroup("✅ אימות", new[]
             {
                 ("שדה חובה", "required_field"),
@@ -753,7 +793,6 @@ namespace PipeWiseClient
             }, columnName);
             operationsPanel.Children.Add(validationGroup);
 
-            // פעולות אגרגציה
             var aggregationGroup = CreateOperationGroup("📊 אגרגציה", new[]
             {
                 ("סכום", "sum"),
@@ -814,7 +853,7 @@ namespace PipeWiseClient
 
         private void OperationCheckBox_Changed(object sender, RoutedEventArgs e)
         {
-            if (_isApplyingConfig) return; // prevent loops while applying config
+            if (_isApplyingConfig) return;
 
             if (sender is CheckBox checkBox && checkBox.Tag is string tag)
             {
@@ -854,18 +893,22 @@ namespace PipeWiseClient
 
                 // איפוס הגדרות נתונים
                 _columnSettings.Clear();
-                FilePathTextBox.Text = string.Empty;
-                FileInfoTextBlock.Text = "לא נבחר קובץ";
-                
+                FilePathTextBox!.Text = string.Empty;
+                FileInfoTextBlock!.Text = "לא נבחר קובץ";
+
                 // הסתרת ממשק העמודות
                 NoFileMessageTextBlock.Visibility = Visibility.Visible;
                 GlobalOperationsPanel.Visibility = Visibility.Collapsed;
                 ColumnsScrollViewer.Visibility = Visibility.Collapsed;
-                
+
                 // איפוס כל ה-checkboxes
                 ResetCheckBoxesInPanel(this);
 
-                // איפוס הגדרות ממשק אם המשתמש רצה
+                // איפוס סטייטים
+                _loadedConfig = null;
+                _hasCompatibleConfig = false;
+                _hasLastRunReport = false;
+
                 if (result == MessageBoxResult.Yes)
                 {
                     ResetUIToDefault();
@@ -874,6 +917,7 @@ namespace PipeWiseClient
                 else
                 {
                     AddInfoNotification("איפוס נתונים", "הגדרות הנתונים אופסו, הגדרות הממשק נשמרו");
+                    SetPhase(UiPhase.Idle);
                 }
             }
             catch (Exception ex)
@@ -923,7 +967,7 @@ namespace PipeWiseClient
                 {
                     File.WriteAllText(saveDialog.FileName, json, System.Text.Encoding.UTF8);
                     AddSuccessNotification(
-                        "קונפיגורציה נשמרה", 
+                        "קונפיגורציה נשמרה",
                         "הקובץ נשמר בהצלחה למיקום הנבחר",
                         $"נתיב: {saveDialog.FileName}\nגודל: {new FileInfo(saveDialog.FileName).Length} bytes"
                     );
@@ -935,24 +979,226 @@ namespace PipeWiseClient
             }
         }
 
-        private void LoadConfig_Click(object sender, RoutedEventArgs e)
+        private async void LoadConfig_Click(object sender, RoutedEventArgs e)
         {
-            var dlg = new OpenFileDialog
+            try
             {
-                Filter = "JSON Files (*.json)|*.json",
-                Title = "בחר קובץ קונפיגורציה"
-            };
-            if (dlg.ShowDialog() != true) return;
+                // 1) ודא שקודם נטען קובץ מקור
+                if (string.IsNullOrWhiteSpace(FilePathTextBox?.Text) || !File.Exists(FilePathTextBox.Text))
+                {
+                    var ask = MessageBox.Show(
+                        "קודם יש לבחור קובץ מקור לעיבוד. לפתוח דיאלוג בחירת קובץ עכשיו?",
+                        "טעינת קובץ נדרשת",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Information
+                    );
 
-            if (!TryReadConfigFromJson(dlg.FileName, out var cfg, out var err))
+                    if (ask != MessageBoxResult.Yes)
+                    {
+                        AddInfoNotification("פעולה בוטלה", "לא נטען קובץ מקור, לא ניתן לטעון קונפיגורציה.");
+                        return;
+                    }
+
+                    var fileDlg = new Microsoft.Win32.OpenFileDialog
+                    {
+                        Filter = "CSV Files (*.csv)|*.csv|JSON Files (*.json)|*.json|Excel Files (*.xlsx;*.xls)|*.xlsx;*.xls|XML Files (*.xml)|*.xml|All Files (*.*)|*.*",
+                        Title = "בחר קובץ נתונים"
+                    };
+
+                    if (fileDlg.ShowDialog() != true)
+                    {
+                        AddInfoNotification("פעולה בוטלה", "לא נבחר קובץ.");
+                        return;
+                    }
+                    else if (!File.Exists(fileDlg.FileName))
+                    {
+                        AddInfoNotification("שגיאה", "הקובץ שנבחר אינו קיים.");
+                        return;
+                    }
+                    else
+                    {
+                        FilePathTextBox!.Text = fileDlg.FileName;
+                        LoadFileColumns(fileDlg.FileName);
+                        AddInfoNotification("נבחר קובץ", "כעת ניתן לטעון קונפיגורציה. ודא שהיא תואמת למבנה הקובץ.");
+                    }
+
+                    SetPhase(UiPhase.FileSelected);
+                }
+                else
+                {
+                    AddInfoNotification("תזכורת", "הקונפיגורציה חייבת להיות תואמת למבנה הקובץ שנטען.");
+                }
+
+                // 2) בחירת קובץ קונפיגורציה
+                var cfgDlg = new Microsoft.Win32.OpenFileDialog
+                {
+                    Filter = "JSON Files (*.json)|*.json",
+                    Title = "בחר קובץ קונפיגורציה"
+                };
+                if (cfgDlg.ShowDialog() != true) return;
+
+                if (!TryReadConfigFromJson(cfgDlg.FileName, out var cfg, out var err))
+                {
+                    AddErrorNotification("שגיאה בטעינת קונפיג", "לא ניתן לטעון את הקובץ", err);
+                    _hasCompatibleConfig = false;
+                    SetPhase(UiPhase.ConfigLoadedMismatch);
+                    return;
+                }
+
+                // 3) בדיקת תאימות
+                var filePath = FilePathTextBox!.Text;
+
+                var validation = LocalValidateCompatibility(cfg!, filePath, _columnNames);
+
+                if (!validation.IsCompatible)
+                {
+                    var dlg = new PipeWiseClient.Windows.CompatibilityReportWindow(validation)
+                    {
+                        Owner = this
+                    };
+                    dlg.ShowDialog();
+
+                    AddErrorNotification("קונפיגורציה לא תואמת לקובץ",
+                        "נמצאו פערים. ראה דוח תאימות ותקן לפני הרצה.");
+
+                    _loadedConfig = cfg!;
+                    _hasCompatibleConfig = false;
+                    SetPhase(UiPhase.ConfigLoadedMismatch);
+                    return;
+                }
+
+                // 4) תאימות מלאה
+                _loadedConfig = cfg!;
+                _hasCompatibleConfig = true;
+                AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(cfgDlg.FileName)}");
+                ApplyConfigToUI(_loadedConfig);
+                SetPhase(UiPhase.ConfigLoadedCompatible);
+            }
+            catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בטעינת קונפיג", "לא ניתן לטעון את הקובץ", err);
-                return;
+                AddErrorNotification("שגיאה בטעינת קונפיגורציה", "אירעה תקלה בתהליך", ex.Message);
+                _hasCompatibleConfig = false;
+                SetPhase(UiPhase.ConfigLoadedMismatch);
             }
 
-            _loadedConfig = cfg!;
-            AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(dlg.FileName)}");
-            ApplyConfigToUI(_loadedConfig);
+            // כדי למנוע אזהרת CS1998 במתודה async ללא await
+            await Task.CompletedTask;
+        }
+
+        // פונקציית עזר: יצירת CompatibilityIssue בבטחה (תומך בשמות שדה שכיחים)
+        private static CompatibilityIssue Issue(string msg)
+        {
+            var issue = new CompatibilityIssue();
+            var t = typeof(CompatibilityIssue);
+            var prop = t.GetProperty("Message", BindingFlags.Public | BindingFlags.Instance)
+                      ?? t.GetProperty("Description", BindingFlags.Public | BindingFlags.Instance)
+                      ?? t.GetProperty("Text", BindingFlags.Public | BindingFlags.Instance);
+            if (prop != null && prop.CanWrite)
+                prop.SetValue(issue, msg);
+            return issue;
+        }
+
+        private PipeWiseClient.Models.CompatResult LocalValidateCompatibility(PipelineConfig cfg, string filePath, List<string> detectedColumns)
+        {
+            var result = new PipeWiseClient.Models.CompatResult();
+
+            try
+            {
+                var requiredCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
+                {
+                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null)
+                        continue;
+
+                    if (opsObj is Newtonsoft.Json.Linq.JArray jarr)
+                    {
+                        foreach (var tok in jarr.OfType<Newtonsoft.Json.Linq.JObject>())
+                        {
+                            var col = (string?)tok["column"];
+                            if (!string.IsNullOrWhiteSpace(col))
+                                requiredCols.Add(col);
+                        }
+                    }
+                    else if (opsObj is System.Text.Json.Nodes.JsonArray sArr)
+                    {
+                        foreach (var node in sArr)
+                        {
+                            var col = node?["column"]?.GetValue<string>();
+                            if (!string.IsNullOrWhiteSpace(col))
+                                requiredCols.Add(col);
+                        }
+                    }
+                    else if (opsObj is IEnumerable<object> plainList)
+                    {
+                        foreach (var item in plainList)
+                        {
+                            var dict = item as Dictionary<string, object>;
+                            if (dict != null && dict.TryGetValue("column", out var cObj) && cObj is string c && !string.IsNullOrWhiteSpace(c))
+                                requiredCols.Add(c);
+                        }
+                    }
+                }
+
+                var colsLower = new HashSet<string>(detectedColumns.Select(s => s.Trim()), StringComparer.OrdinalIgnoreCase);
+                var missing = requiredCols.Where(rc => !colsLower.Contains(rc.Trim())).ToList();
+                if (missing.Any())
+                {
+                    result.IsCompatible = false;
+                    result.Issues.Add(Issue($"עמודות חסרות בקובץ: {string.Join(", ", missing)}"));
+                }
+
+                var numericOps = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sum", "average", "min", "max" };
+                foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
+                {
+                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
+
+                    IEnumerable<(string action, string? column)> EnumerateOps()
+                    {
+                        if (opsObj is Newtonsoft.Json.Linq.JArray jarr)
+                        {
+                            foreach (var tok in jarr.OfType<Newtonsoft.Json.Linq.JObject>())
+                                yield return (((string?)tok["action"]) ?? "", (string?)tok["column"]);
+                        }
+                        else if (opsObj is System.Text.Json.Nodes.JsonArray sArr)
+                        {
+                            foreach (var node in sArr)
+                                yield return ((node?["action"]?.GetValue<string>()) ?? "", node?["column"]?.GetValue<string>());
+                        }
+                        else if (opsObj is IEnumerable<object> plainList)
+                        {
+                            foreach (var item in plainList)
+                            {
+                                var dict = item as Dictionary<string, object>;
+                                var action = dict != null && dict.TryGetValue("action", out var aObj) ? aObj?.ToString() ?? "" : "";
+                                var col = dict != null && dict.TryGetValue("column", out var cObj) ? cObj as string : null;
+                                yield return (action, col);
+                            }
+                        }
+                    }
+
+                    foreach (var (action, col) in EnumerateOps())
+                    {
+                        if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(col)) continue;
+
+                        if (numericOps.Contains(action) && colsLower.Contains(col))
+                        {
+                            var hint = col!.ToLowerInvariant();
+                            if (!(hint.Contains("price") || hint.Contains("qty") || hint.Contains("quantity") || hint.Contains("total") || hint.Contains("amount") || hint.Contains("count")))
+                            {
+                                result.Issues.Add(Issue($"בדיקה: הפעולה '{action}' על '{col}' נראית מספרית — ודא שהעמודה מספרית."));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.IsCompatible = false;
+                result.Issues.Add(Issue("שגיאה בבדיקת התאימות: " + ex.Message));
+            }
+
+            return result;
         }
 
         private void ApplyConfigToUI(PipelineConfig cfg)
@@ -960,16 +1206,16 @@ namespace PipeWiseClient
             _isApplyingConfig = true;
             try
             {
-                // 1) אם יש נתיב קובץ ב-source ונותן לטעון עמודות – נטען כדי ליצור את הצ׳קבוקסים הדינמיים
                 var sourcePath = cfg.Source?.Path;
                 if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
                 {
-                    // מציג את הנתיב בתיבה ויטעין את העמודות (כמו BrowseFile_Click)
-                    FilePathTextBox.Text = sourcePath;
+                    FilePathTextBox!.Text = sourcePath;
                     LoadFileColumns(sourcePath);
                 }
 
-                // 2) אפליקציה של פעולות גלובליות (cleaner ללא column)
+                if (!string.IsNullOrWhiteSpace(cfg.Target?.Type))
+                    SelectTargetTypeInUi(cfg.Target.Type);
+
                 var globalActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var perColumnOps = new List<(string column, string action)>();
 
@@ -977,7 +1223,6 @@ namespace PipeWiseClient
                 {
                     if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
 
-                    // ה־Dictionary<string,object> מגיע מ-Newtonsoft ולכן value לרוב יהיה JArray/JObject
                     if (opsObj is JArray jarr)
                     {
                         foreach (var tok in jarr.OfType<JObject>())
@@ -994,12 +1239,13 @@ namespace PipeWiseClient
                     }
                 }
 
-                // 3) סנכרון שלושת הצ׳קבוקסים הגלובליים הקיימים במסך
-                RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
-                RemoveDuplicatesCheckBox.IsChecked = globalActions.Contains("remove_duplicates");
-                StripWhitespaceCheckBox.IsChecked  = globalActions.Contains("strip_whitespace");
+                if (RemoveEmptyRowsCheckBox != null)
+                    RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
+                if (RemoveDuplicatesCheckBox != null)
+                    RemoveDuplicatesCheckBox.IsChecked = globalActions.Contains("remove_duplicates");
+                if (StripWhitespaceCheckBox != null)
+                    StripWhitespaceCheckBox.IsChecked = globalActions.Contains("strip_whitespace");
 
-                // 4) סימון פעולות לפי עמודות (אם כבר נטענו עמודות ונוצרו הצ׳קבוקסים הדינמיים)
                 if (ColumnsPanel != null && ColumnsPanel.Children.Count > 0 && perColumnOps.Count > 0)
                 {
                     foreach (var (column, action) in perColumnOps)
@@ -1011,10 +1257,8 @@ namespace PipeWiseClient
                 }
                 else if (perColumnOps.Count > 0 && !string.IsNullOrWhiteSpace(sourcePath) && !File.Exists(sourcePath))
                 {
-                    // יש פעולות לפי עמודות, אבל לא ניתן היה לטעון עמודות כי הקובץ לא קיים/לא נגיש
                     AddWarningNotification("קובץ מקור לא נטען",
-                        "זיהיתי פעולות לפי עמודות בקונפיגורציה, אך לא נטענו עמודות (הקובץ ב-source.path לא נמצא). " +
-                        "בחר קובץ נתונים זהה לזה שבקונפיג כדי לסמן אוטומטית את הצ׳קבוקסים של העמודות.");
+                        "זוהו פעולות לפי עמודות, אך הקובץ ב-source.path לא נמצא. בחר קובץ נתונים זהה לזה שבקונפיג כדי לסמן אוטומטית.");
                 }
             }
             finally
@@ -1022,6 +1266,23 @@ namespace PipeWiseClient
                 _isApplyingConfig = false;
             }
         }
+
+        private void SelectTargetTypeInUi(string type)
+        {
+            if (TargetTypeComboBox is ComboBox cb)
+            {
+                foreach (var obj in cb.Items)
+                {
+                    if (obj is ComboBoxItem it && it.Tag is string tag &&
+                        string.Equals(tag, type, StringComparison.OrdinalIgnoreCase))
+                    {
+                        cb.SelectedItem = it;
+                        break;
+                    }
+                }
+            }
+        }
+
 
         private CheckBox? FindCheckBoxByTag(DependencyObject root, string tag)
         {
@@ -1041,7 +1302,6 @@ namespace PipeWiseClient
         {
             try
             {
-                // קח קונפיג קיים או בנה מה־UI
                 var cfg = _loadedConfig ?? BuildPipelineConfig();
                 if (cfg == null)
                 {
@@ -1049,7 +1309,6 @@ namespace PipeWiseClient
                     return;
                 }
 
-                // הצע שם ברירת מחדל לפי קובץ הנתונים אם יש
                 string baseName;
                 var fp = FilePathTextBox != null ? FilePathTextBox.Text : null;
                 if (!string.IsNullOrWhiteSpace(fp))
@@ -1057,17 +1316,14 @@ namespace PipeWiseClient
                 else
                     baseName = $"Pipeline {System.DateTime.Now:yyyy-MM-dd HH:mm}";
 
-                // בקשת שם מהמשתמש
                 var dlg = new PipeWiseClient.Windows.PipelineNameDialog($"{baseName} – שמור");
                 dlg.Owner = this;
                 var ok = dlg.ShowDialog() == true;
                 if (!ok || string.IsNullOrWhiteSpace(dlg.PipelineName))
                     return;
 
-                // ודא יעד בטוח תחת output
                 EnsureSafeTargetPath(cfg, fp ?? string.Empty);
 
-                // שמירה לשרת עם שם
                 var resp = await _api.CreatePipelineAsync(cfg, name: dlg.PipelineName);
 
                 AddSuccessNotification("Pipeline נשמר בשרת",
@@ -1080,55 +1336,74 @@ namespace PipeWiseClient
             }
         }
 
+        private void CancelRun_Click(object sender, RoutedEventArgs e)
+        {
+            _runCts?.Cancel();
+            AddInfoNotification("ביטול", "הריצה מתבטלת…");
+        }
+
         private async void RunSavedPipeline_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // חלון בחירת פייפליין
-                var picker = new PipeWiseClient.Windows.PipelinePickerWindow
-                {
-                    Owner = this
-                };
-
+                var picker = new PipeWiseClient.Windows.PipelinePickerWindow { Owner = this };
                 var ok = picker.ShowDialog() == true && picker.SelectedPipeline != null;
                 if (!ok)
                 {
-                    // המשתמש סגר או ביטל
                     AddInfoNotification("בחירה בוטלה", "לא נבחר פייפליין.");
                     return;
                 }
 
                 var p = picker.SelectedPipeline!;
+                SetPhase(UiPhase.Running);
+                UpdateSystemStatus($"מריץ '{p.name}'…", true);
+                AddInfoNotification("הרצה", $"מריץ את '{p.name}'");
 
-                // הודעת אישור – בלי פתיחת דיאלוג קובץ
-                var confirm = MessageBox.Show(
-                    $"פייפליין \"{p.name}\" נבחר.\n\n" +
-                    $"בלחיצה על 'אישור' תתבצע הרצה של הפייפליין.\n" +
-                    $"בלחיצה על 'ביטול' הבחירה תבוטל ולא תתבצע הרצה.",
-                    "אישור הרצת פייפליין",
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.OK);
-
-                if (confirm != MessageBoxResult.OK)
+                _runCts = new CancellationTokenSource();
+                RunProgressBar.Value = 0; RunProgressText.Text = "0%";
+                var progress = new Progress<(string Status, int Percent)>(pr =>
                 {
-                    AddInfoNotification("בחירה בוטלה", $"הפייפליין '{p.name}' לא הורץ.");
+                    RunProgressBar.Value = pr.Percent;
+                    RunProgressText.Text = $"{pr.Percent}%";
+                    SystemStatusText.Text = $"🟢 {pr.Status} ({pr.Percent}%)";
+                });
+
+                // שליפת ההגדרה המלאה
+                var full = await _api.GetPipelineAsync(p.id);
+                if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
+
+                RunPipelineResult runResult;
+                try
+                {
+                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    AddInfoNotification("בוטל", "המשתמש ביטל את הריצה.");
+                    UpdateSystemStatus("הריצה בוטלה", false);
                     return;
                 }
 
-                // הרצה (ללא קובץ קלט – השרת תומך באופציונלי)
-                UpdateSystemStatus("מריץ פייפליין שמור…", true);
-                AddInfoNotification("הרצה", $"מריץ את '{p.name}'");
-
-                var runResult = await _api.RunPipelineByIdAsync(p.id, filePath: null);
-
                 AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
                 UpdateSystemStatus("המערכת פועלת תקין", true);
+
+                if (!string.IsNullOrWhiteSpace(runResult?.TargetPath))
+                {
+                    try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{runResult.TargetPath}\""); }
+                    catch (Exception ex) { AddErrorNotification("פתיחת תיקיה נכשלה", runResult.TargetPath, ex.Message); }
+                }
+
+                _hasLastRunReport = true;
+                SetPhase(UiPhase.Completed);
             }
             catch (Exception ex)
             {
                 AddErrorNotification("שגיאה בהרצת פייפליין", "לא ניתן להריץ את הפייפליין שנבחר", ex.Message);
                 UpdateSystemStatus("שגיאה במערכת", false);
+
+                // חזרה לסטייט הגיוני אחרי כישלון
+                SetPhase(_hasCompatibleConfig ? UiPhase.ConfigLoadedCompatible :
+                         _hasFile ? UiPhase.FileSelected : UiPhase.Idle);
             }
         }
 
@@ -1136,68 +1411,117 @@ namespace PipeWiseClient
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(FilePathTextBox.Text) || !File.Exists(FilePathTextBox.Text))
+                if (string.IsNullOrWhiteSpace(FilePathTextBox!.Text) || !File.Exists(FilePathTextBox.Text))
                 {
-                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור קיים לפני הרצת Pipeline");
+                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור קיים לפני הרצה");
                     return;
                 }
 
-                UpdateSystemStatus("מעבד נתונים...", true);
-                AddInfoNotification("התחלת עיבוד", "מריץ Pipeline...", "מכין קונפיגורציה ושולח בקשה לשרת");
-
-                // ✦ אם נטען קובץ קונפיג – נשתמש בו; אחרת נבנה מה־UI (הקוד הקיים שלך)
+                // בונים קונפיג כרגיל
                 var cfg = _loadedConfig ?? BuildPipelineConfig();
                 if (cfg?.Source == null || cfg.Target == null)
                 {
                     AddErrorNotification("שגיאת קונפיגורציה", "לא ניתן לבנות קונפיגורציה תקינה");
+                    SetPhase(_hasFile ? UiPhase.FileSelected : UiPhase.Idle);
                     return;
                 }
-
-                // לעקביות, נעדכן את מקור הנתונים לקובץ שבחרת עכשיו
                 cfg.Source.Path = FilePathTextBox.Text;
-
-                // ✦ חובה: יעד תחת תיקיית output שהשרת אוכף
                 EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
 
-                // ✦ שליחה באמצעות מחלקת ה-API שלנו (ולא HttpClient ידני)
-                var text = await _api.RunAdHocPipelineAsync(
-                    filePath: FilePathTextBox.Text,
-                    config: cfg,
-                    report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false }
-                );
+                // UI → Running
+                SetPhase(UiPhase.Running);
+                UpdateSystemStatus("מעבד נתונים…", true);
+                RunProgressBar.Value = 0;
+                RunProgressText.Text = "0%";
+                _runCts = new CancellationTokenSource();
 
-                AddSuccessNotification("Pipeline הושלם!", "העיבוד הסתיים בהצלחה", $"תגובת שרת:\n{text}");
+                var progress = new Progress<(string Status, int Percent)>(p =>
+                {
+                    RunProgressBar.Value = p.Percent;
+                    RunProgressText.Text = $"{p.Percent}%";
+                    SystemStatusText.Text = $"🟢 {p.Status} ({p.Percent}%)";
+                });
+
+                RunPipelineResult result;
+
+                try
+                {
+                    // ניסיון לרוץ במודל Jobs (Start→Progress→Result)
+                    result = await _api.RunWithProgressAsync(cfg, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    AddInfoNotification("בוטל", "המשתמש ביטל את הריצה.");
+                    UpdateSystemStatus("הריצה בוטלה", false);
+                    return;
+                }
+                catch
+                {
+                    // נפילה חכמה ל-Ad-hoc (מעלה את הקובץ) אם השרת לא נגיש לקובץ בנתיב המקומי
+                    AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (העלאת קובץ).");
+                    result = await _api.RunAdHocPipelineAsync(
+                        filePath: FilePathTextBox.Text,
+                        config: cfg,
+                        report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false },
+                        ct: _runCts.Token
+                    );
+                }
+
+                AddSuccessNotification("Pipeline הושלם!", result.message);
+
+                if (!string.IsNullOrWhiteSpace(result.TargetPath))
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{result.TargetPath}\"");
+                        AddInfoNotification("קובץ נוצר", $"הקובץ נוצר ב:\n{result.TargetPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        AddWarningNotification("קובץ נוצר", $"הקובץ נוצר אך לא הצלחתי לפתוח את התיקיה.\n{result.TargetPath}\n\n{ex.Message}");
+                    }
+                }
+
                 UpdateSystemStatus("המערכת פועלת תקין", true);
+                _hasLastRunReport = true;
+                SetPhase(UiPhase.Completed);
             }
             catch (Exception ex)
             {
                 AddErrorNotification("שגיאה בהרצת Pipeline", ex.Message, ex.StackTrace);
                 UpdateSystemStatus("שגיאה במערכת", false);
+                SetPhase(_hasCompatibleConfig ? UiPhase.ConfigLoadedCompatible : _hasFile ? UiPhase.FileSelected : UiPhase.Idle);
+            }
+            finally
+            {
+                _runCts?.Dispose();
+                _runCts = null;
+                if (RunProgressBar != null) RunProgressBar.Value = 0;
+                if (RunProgressText != null) RunProgressText.Text = "0%";
             }
         }
+
 
         private PipelineConfig? BuildPipelineConfig()
         {
             try
             {
-                if (string.IsNullOrEmpty(FilePathTextBox.Text))
+                if (string.IsNullOrEmpty(FilePathTextBox!.Text))
                     return null;
 
                 var processors = new List<ProcessorConfig>();
 
-                // הוסף פעולות גלובליות
                 var globalOperations = new List<Dictionary<string, object>>();
-                
+
                 if (RemoveEmptyRowsCheckBox?.IsChecked == true)
                     globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_empty_rows" });
-                
+
                 if (RemoveDuplicatesCheckBox?.IsChecked == true)
                     globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_duplicates" });
-                
+
                 if (StripWhitespaceCheckBox?.IsChecked == true)
                     globalOperations.Add(new Dictionary<string, object> { ["action"] = "strip_whitespace" });
 
-                // הוסף פעולות ספציפיות לעמודות
                 var cleaningOps = new List<Dictionary<string, object>>();
                 var transformOps = new List<Dictionary<string, object>>();
                 var validationOps = new List<Dictionary<string, object>>();
@@ -1228,7 +1552,7 @@ namespace PipeWiseClient
                         {
                             validationOps.Add(opDict);
                         }
-                        else if (operation == "sum" || operation == "average" || operation == "count" || 
+                        else if (operation == "sum" || operation == "average" || operation == "count" ||
                                 operation == "min" || operation == "max" || operation == "group_by")
                         {
                             aggregationOps.Add(opDict);
@@ -1236,7 +1560,6 @@ namespace PipeWiseClient
                     }
                 }
 
-                // צור processors
                 if (globalOperations.Count > 0 || cleaningOps.Count > 0)
                 {
                     var allCleaningOps = globalOperations.Concat(cleaningOps).ToList();
@@ -1274,7 +1597,6 @@ namespace PipeWiseClient
                     });
                 }
 
-                // אם אין processors, הוסף cleaner בסיסי
                 if (processors.Count == 0)
                 {
                     processors.Add(new ProcessorConfig
@@ -1291,20 +1613,24 @@ namespace PipeWiseClient
                     });
                 }
 
-                // קבע סוג מקור
                 var fileExtension = Path.GetExtension(FilePathTextBox.Text).ToLower();
                 var sourceType = fileExtension switch
                 {
-                    ".csv" => "csv",
+                    ".csv"  => "csv",
                     ".json" => "json",
                     ".xlsx" or ".xls" => "excel",
-                    ".xml" => "xml",
+                    ".xml"  => "xml",
                     _ => "csv"
                 };
 
                 var baseName = Path.GetFileNameWithoutExtension(FilePathTextBox.Text);
-                var outputFileName = $"{baseName}_processed.csv";
-                try { Directory.CreateDirectory(OUTPUT_DIR); } catch { /* לא קריטי ללקוח */ }
+
+                // לפי בחירת המשתמש
+                var selectedTargetType = GetSelectedTargetType();
+                var targetExt = ExtForTarget(selectedTargetType);
+
+                var outputFileName = $"{baseName}_processed.{targetExt}";
+                try { Directory.CreateDirectory(OUTPUT_DIR); } catch { }
                 var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
 
                 return new PipelineConfig
@@ -1317,8 +1643,8 @@ namespace PipeWiseClient
                     Processors = processors.ToArray(),
                     Target = new TargetConfig
                     {
-                        Type = "csv",
-                        Path = absoluteTargetPath   // ← נתיב מלא תחת OUTPUT_DIR
+                        Type = selectedTargetType,
+                        Path = absoluteTargetPath
                     }
                 };
             }
@@ -1331,17 +1657,19 @@ namespace PipeWiseClient
 
         private void EnsureSafeTargetPath(PipelineConfig cfg, string dataFilePath)
         {
-            // השרת דורש שה־Target.Path יהיה תחת OUTPUT_DIR
             Directory.CreateDirectory(OUTPUT_DIR);
 
             var baseName = string.IsNullOrWhiteSpace(dataFilePath)
                 ? "output"
                 : Path.GetFileNameWithoutExtension(dataFilePath);
 
-            var defaultType = "csv";
-            var defaultPath = Path.Combine(OUTPUT_DIR, $"{baseName}_processed.csv");
+            // לפי בחירת המשתמש
+            var selectedTargetType = GetSelectedTargetType();
+            var targetExt = ExtForTarget(selectedTargetType);
 
-            // אם Target לא מאותחל – אתחול עם required members כבר באובייקט-אינישיאלייזר
+            var defaultType = selectedTargetType;
+            var defaultPath = Path.Combine(OUTPUT_DIR, $"{baseName}_processed.{targetExt}");
+
             if (cfg.Target == null)
             {
                 cfg.Target = new TargetConfig
@@ -1352,12 +1680,21 @@ namespace PipeWiseClient
                 return;
             }
 
-            // אם יש Target אבל חסרים ערכים – מלא ערכי ברירת מחדל
             if (string.IsNullOrWhiteSpace(cfg.Target.Type))
                 cfg.Target.Type = defaultType;
 
             if (string.IsNullOrWhiteSpace(cfg.Target.Path))
                 cfg.Target.Path = defaultPath;
+
+            var effectiveType = string.IsNullOrWhiteSpace(cfg.Target.Type) ? selectedTargetType : cfg.Target.Type;
+            var desiredExt   = "." + ExtForTarget(effectiveType.ToLowerInvariant());
+
+            if (!string.IsNullOrWhiteSpace(cfg.Target.Path))
+            {
+                var currentExt = Path.GetExtension(cfg.Target.Path);
+                if (!string.Equals(currentExt, desiredExt, StringComparison.OrdinalIgnoreCase))
+                    cfg.Target.Path = Path.ChangeExtension(cfg.Target.Path, desiredExt);
+            }
         }
 
         private bool TryReadConfigFromJson(string filePath, out PipelineConfig? cfg, out string? error)
@@ -1386,5 +1723,13 @@ namespace PipeWiseClient
     public class ColumnSettings
     {
         public HashSet<string> Operations { get; set; } = new HashSet<string>();
+    }
+
+    internal static class UIHelpers
+    {
+        public static void Let<T>(this T? obj, Action<T> act) where T : class
+        {
+            if (obj is not null) act(obj);
+        }
     }
 }

@@ -44,5 +44,9 @@ namespace PipeWiseClient.Models
         public string? progress_file { get; set; }
         public object? config_echo { get; set; }
         public string? error { get; set; }
+        
+        [System.Text.Json.Serialization.JsonPropertyName("target_path")]
+        public string? TargetPath { get; set; }
+
     }
 }

@@ -1,0 +1,66 @@
+<Window x:Class="PipeWiseClient.Windows.CompatibilityReportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="בדיקת תאימות לקובץ" Height="520" Width="760"
+        WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft"
+        FontFamily="Segoe UI" FontSize="13">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- כותרת -->
+        <TextBlock Text="תוצאות בדיקת התאימות"
+                   FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+        <!-- תקציר -->
+        <Border Grid.Row="1" Background="#F8F9FA" BorderBrush="#E9ECEF" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="SummaryText" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <Border Background="#FDECEA" Padding="8,4" CornerRadius="4" Visibility="Collapsed" x:Name="ErrorsBadge" Margin="0,0,12,0">
+                    <TextBlock x:Name="ErrorsText" Foreground="#B71C1C" FontWeight="Bold"/>
+                </Border>
+                <Border Background="#FFF8E1" Padding="8,4" CornerRadius="4" Visibility="Collapsed" x:Name="WarningsBadge">
+                    <TextBlock x:Name="WarningsText" Foreground="#8C6D1F" FontWeight="Bold"/>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- טבלה -->
+        <DataGrid Grid.Row="2" x:Name="IssuesGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                  HeadersVisibility="Column" IsReadOnly="True" SelectionMode="Extended">
+            <DataGrid.Resources>
+                <!-- צבע רקע לפי חומרה -->
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="White"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Severity}" Value="Error">
+                            <Setter Property="Background" Value="#FFFDECEA"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                            <Setter Property="Background" Value="#FFFFF8E1"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.Resources>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="חומרה" Binding="{Binding Severity}" Width="90"/>
+                <DataGridTextColumn Header="קוד" Binding="{Binding Code}" Width="130"/>
+                <DataGridTextColumn Header="עמודה" Binding="{Binding Column}" Width="160"/>
+                <DataGridTextColumn Header="תיאור" Binding="{Binding Message}" Width="*"/>
+                <DataGridTextColumn Header="ציפינו" Binding="{Binding Expected}" Width="140"/>
+                <DataGridTextColumn Header="בפועל" Binding="{Binding Actual}" Width="140"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- כפתורים -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,12,0,0">
+            <Button x:Name="CopyBtn" Content="העתק ללוח" Padding="14,6" Click="CopyBtn_Click" Margin="0,0,10,0"/>
+            <Button x:Name="CloseBtn" Content="סגור" Padding="14,6" Click="CloseBtn_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
