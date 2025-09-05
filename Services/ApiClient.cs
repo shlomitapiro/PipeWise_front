@@ -24,7 +24,7 @@ namespace PipeWiseClient.Services
         }
 
         public void Dispose() => _http.Dispose();
-        
+
 
         // ------------------ Jobs API (Start → Progress → Result) ------------------
         public async Task<RunStartResponse> StartRunAsync(object pipelineConfig, CancellationToken ct = default)
@@ -287,5 +287,20 @@ namespace PipeWiseClient.Services
             return body;
         }
 
+        public async Task<ReportInfo?> GetReportDetailsAsync(string reportId, CancellationToken ct = default)
+        {
+            var res = await _http.GetAsync($"reports/{reportId}", ct);
+            if (!res.IsSuccessStatusCode) return null;
+
+            var json = await res.Content.ReadAsStringAsync(ct);
+            var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<SingleReportResponse>(json);
+            return dto?.Report;
+        }
+
+        private class SingleReportResponse
+        {
+            [Newtonsoft.Json.JsonProperty("report")]
+            public ReportInfo? Report { get; set; }
+        }
     }
 }

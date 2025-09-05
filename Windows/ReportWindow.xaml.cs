@@ -11,20 +11,17 @@ using Microsoft.Win32;
 using PipeWiseClient.Services;
 using PipeWiseClient.Models;
 
-
 namespace PipeWiseClient.Windows
 {
     public partial class ReportsWindow : Window
     {
         private List<ReportDisplayModel> _reports = new List<ReportDisplayModel>();
-
         private readonly ApiClient _api = new();
-
 
         public ReportsWindow()
         {
             InitializeComponent();
-             _ = LoadReportsAsync();
+            _ = LoadReportsAsync();
         }
 
         private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -45,9 +42,9 @@ namespace PipeWiseClient.Windows
                 try
                 {
                     UpdateStatus("מנקה דוחות ישנים...");
-                    
+
                     var cleanupResult = await _api.CleanupOldReportsAsync(100, 30);
-                    
+
                     if (cleanupResult != null)
                     {
                         MessageBox.Show(
@@ -84,31 +81,31 @@ namespace PipeWiseClient.Windows
 
                     // הורדת הקובץ HTML מהשרת
                     var htmlData = await _api.DownloadReportFileAsync(report.ReportId, "html");
-                    
+
                     if (htmlData != null)
                     {
                         // יצירת קובץ זמני
                         var tempFileName = Path.Combine(Path.GetTempPath(), $"{report.ReportId}_report.html");
-                        
+
                         // שמירת הקובץ הזמני
                         await File.WriteAllBytesAsync(tempFileName, htmlData);
-                        
+
                         // פתיחה בדפדפן המחדל
                         Process.Start(new ProcessStartInfo
                         {
                             FileName = tempFileName,
                             UseShellExecute = true
                         });
-                        
+
                         UpdateStatus($"נפתח דוח HTML: {report.PipelineName}");
-                        
+
                         // מחיקת הקובץ הזמני אחרי 30 שניות (אופציונלי)
-                        _ = Task.Delay(30000).ContinueWith(_ => 
+                        _ = Task.Delay(30000).ContinueWith(_ =>
                         {
-                            try 
-                            { 
+                            try
+                            {
                                 if (File.Exists(tempFileName))
-                                    File.Delete(tempFileName); 
+                                    File.Delete(tempFileName);
                             }
                             catch { /* אם נכשל למחוק, זה לא נורא */ }
                         });
@@ -143,8 +140,8 @@ namespace PipeWiseClient.Windows
                         MessageBox.Show(
                             "דוח PDF לא זמין עבור Pipeline זה.\n\n" +
                             "ייתכן שהשרת לא מגונדר ליצירת PDF או שהתכונה מושבתת.",
-                            "PDF לא זמין", 
-                            MessageBoxButton.OK, 
+                            "PDF לא זמין",
+                            MessageBoxButton.OK,
                             MessageBoxImage.Information);
                         return;
                     }
@@ -153,7 +150,7 @@ namespace PipeWiseClient.Windows
 
                     // ניסיון להוריד את קובץ ה-PDF מהשרת
                     var pdfData = await _api.DownloadReportFileAsync(report.ReportId, "pdf");
-                    
+
                     if (pdfData != null && pdfData.Length > 0)
                     {
                         // הצגת דיאלוג שמירה
@@ -167,7 +164,7 @@ namespace PipeWiseClient.Windows
                         if (saveDialog.ShowDialog() == true)
                         {
                             await File.WriteAllBytesAsync(saveDialog.FileName, pdfData);
-                            
+
                             var result = MessageBox.Show(
                                 $"הדוח נשמר בהצלחה!\n\nהאם תרצה לפתוח את הקובץ?",
                                 "דוח נשמר",
@@ -194,8 +191,8 @@ namespace PipeWiseClient.Windows
                             "• השרת לא מגונדר ליצירת PDF\n" +
                             "• חסרות ספריות נדרשות (weasyprint)\n" +
                             "• קובץ PDF לא נוצר עבור הדוח הזה",
-                            "שגיאה בהורדת PDF", 
-                            MessageBoxButton.OK, 
+                            "שגיאה בהורדת PDF",
+                            MessageBoxButton.OK,
                             MessageBoxImage.Warning);
                     }
                 }
@@ -204,8 +201,8 @@ namespace PipeWiseClient.Windows
                     MessageBox.Show(
                         $"שגיאה בהורדת דוח PDF:\n\n{ex.Message}\n\n" +
                         "ודא שהשרת פועל ושהתכונה מופעלת.",
-                        "שגיאה", 
-                        MessageBoxButton.OK, 
+                        "שגיאה",
+                        MessageBoxButton.OK,
                         MessageBoxImage.Error);
                 }
                 finally
@@ -214,7 +211,6 @@ namespace PipeWiseClient.Windows
                 }
             }
         }
-
 
         private async void DeleteButton_Click(object sender, RoutedEventArgs e)
         {
@@ -264,7 +260,7 @@ namespace PipeWiseClient.Windows
                 UpdateStatus("טוען דוחות...");
 
                 var reports = await _api.GetReportsListAsync(100);
-                
+
                 if (reports?.Count > 0)
                 {
                     _reports = reports.Select(r => new ReportDisplayModel(r)).ToList();
@@ -309,7 +305,7 @@ namespace PipeWiseClient.Windows
             LoadingPanel.Visibility = Visibility.Collapsed;
             EmptyStatePanel.Visibility = Visibility.Collapsed;
             ReportsScrollViewer.Visibility = Visibility.Visible;
-            
+
             ReportsItemsControl.ItemsSource = _reports;
         }
 
@@ -334,64 +330,138 @@ namespace PipeWiseClient.Windows
             _api.Dispose();
         }
 
-    }
-
-    // מודל לתצוגה
-    public class ReportDisplayModel
+        /// <summary>
+        /// טעינה "עצלנית" של פרטי אימות תוצר כאשר המשתמש פותח את ה-Expander.
+        /// </summary>
+        private async void ValidationExpander_Expanded(object sender, RoutedEventArgs e)
         {
-            public string ReportId { get; set; } = string.Empty;
-            public string PipelineName { get; set; } = string.Empty;
-            public string Status { get; set; } = string.Empty;
-            public string StatusText { get; set; } = string.Empty;
-            public string StatusColor { get; set; } = string.Empty;
-            public string Duration { get; set; } = string.Empty;
-            public string FormattedDate { get; set; } = string.Empty;
-            public string RowsInfo { get; set; } = string.Empty;
-            public string SourceType { get; set; } = string.Empty;
-            public int TotalErrors { get; set; }
-            public int TotalWarnings { get; set; }
-            public bool HasHtml { get; set; }
-            public bool HasPdf { get; set; }
-            public string HtmlPath { get; set; } = string.Empty;
-            public string PdfPath { get; set; } = string.Empty;
-
-            public ReportDisplayModel(ReportInfo report)
+            if (sender is Expander exp && exp.DataContext is ReportDisplayModel vm)
             {
-                ReportId = report.ReportId ?? string.Empty;
-                PipelineName = report.PipelineName ?? "Pipeline ללא שם";
-                Status = report.Status ?? string.Empty;
-                Duration = report.Duration ?? "לא ידוע";
-                TotalErrors = report.TotalErrors;
-                TotalWarnings = report.TotalWarnings;
-                SourceType = report.SourceType ?? "לא ידוע";
-                HtmlPath = report.HtmlPath ?? string.Empty;
-                PdfPath = report.PdfPath ?? string.Empty;
-                
-                // חישוב StatusText ו-StatusColor
-                (StatusText, StatusColor) = Status.ToLower() switch
-                {
-                    "success" => ("הושלם", "#27AE60"),
-                    "warning" => ("אזהרות", "#F39C12"),
-                    "error" => ("שגיאה", "#E74C3C"),
-                    _ => ("לא ידוע", "#95A5A6")
-                };
+                if (vm.HasValidationLoaded) return;
 
-                // פורמט תאריך
-                if (DateTime.TryParse(report.CreatedAt ?? report.StartTime, out var date))
+                try
                 {
-                    FormattedDate = date.ToString("dd/MM/yyyy HH:mm", CultureInfo.GetCultureInfo("he-IL"));
+                    UpdateStatus("טוען אימות תוצר...");
+                    var full = await _api.GetReportDetailsAsync(vm.ReportId);
+                    vm.ApplyValidation(full?.OutputValidation);
+                    ReportsItemsControl.Items.Refresh();
                 }
-                else
+                catch (Exception ex)
                 {
-                    FormattedDate = "תאריך לא זמין";
+                    MessageBox.Show($"שגיאה בטעינת אימות: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
-
-                // מידע על שורות
-                RowsInfo = $"{report.InputRows:N0} → {report.OutputRows:N0}";
-
-                // מצב קבצים
-                HasHtml = report.FilesExist?.Html ?? false;
-                HasPdf = report.FilesExist?.Pdf ?? false;
+                finally
+                {
+                    UpdateStatus("מוכן");
+                }
             }
         }
     }
+
+    // מודל לתצוגה עבור כל שורת דוח + נתוני אימות תוצר
+    public class ReportDisplayModel
+    {
+        public string ReportId { get; set; } = string.Empty;
+        public string PipelineName { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string StatusText { get; set; } = string.Empty;
+        public string StatusColor { get; set; } = string.Empty;
+        public string Duration { get; set; } = string.Empty;
+        public string FormattedDate { get; set; } = string.Empty;
+        public string RowsInfo { get; set; } = string.Empty;
+        public string SourceType { get; set; } = string.Empty;
+        public int TotalErrors { get; set; }
+        public int TotalWarnings { get; set; }
+        public bool HasHtml { get; set; }
+        public bool HasPdf { get; set; }
+        public string HtmlPath { get; set; } = string.Empty;
+        public string PdfPath { get; set; } = string.Empty;
+
+        // ===== אימות תוצר (לתצוגה ב-Expander) =====
+        public bool HasValidationLoaded { get; private set; }
+        public string ValidationStatusText { get; private set; } = "—";
+        public string ValidationPassedBrush { get; private set; } = "#7F8C8D";
+        public List<string> MissingColumns { get; private set; } = new();
+        public List<string> ExtraColumns { get; private set; } = new();
+        public List<string> ValidationErrors { get; private set; } = new();
+        public string StatsLine { get; private set; } = "";
+
+        public ReportDisplayModel(ReportInfo report)
+        {
+            ReportId = report.ReportId ?? string.Empty;
+            PipelineName = report.PipelineName ?? "Pipeline ללא שם";
+            Status = report.Status ?? string.Empty;
+            Duration = report.Duration ?? "לא ידוע";
+            TotalErrors = report.TotalErrors;
+            TotalWarnings = report.TotalWarnings;
+            SourceType = report.SourceType ?? "לא ידוע";
+            HtmlPath = report.HtmlPath ?? string.Empty;
+            PdfPath = report.PdfPath ?? string.Empty;
+
+            // חישוב StatusText ו-StatusColor
+            (StatusText, StatusColor) = Status.ToLower() switch
+            {
+                "success" => ("הושלם", "#27AE60"),
+                "warning" => ("אזהרות", "#F39C12"),
+                "error" => ("שגיאה", "#E74C3C"),
+                _ => ("לא ידוע", "#95A5A6")
+            };
+
+            // פורמט תאריך
+            if (DateTime.TryParse(report.CreatedAt ?? report.StartTime, out var date))
+            {
+                FormattedDate = date.ToString("dd/MM/yyyy HH:mm", CultureInfo.GetCultureInfo("he-IL"));
+            }
+            else
+            {
+                FormattedDate = "תאריך לא זמין";
+            }
+
+            // מידע על שורות
+            RowsInfo = $"{report.InputRows:N0} → {report.OutputRows:N0}";
+
+            // מצב קבצים
+            HasHtml = report.FilesExist?.Html ?? false;
+            HasPdf = report.FilesExist?.Pdf ?? false;
+
+            // אם השרת כבר החזיר אימות בדף הרשימה – נשתמש בו מיידית
+            ApplyValidation(report.OutputValidation);
+        }
+
+        public void ApplyValidation(OutputValidation? ov)
+        {
+            HasValidationLoaded = true;
+
+            if (ov == null)
+            {
+                ValidationStatusText = "אין נתוני אימות לדוח זה";
+                ValidationPassedBrush = "#7F8C8D";
+                MissingColumns.Clear();
+                ExtraColumns.Clear();
+                ValidationErrors.Clear();
+                StatsLine = "";
+                return;
+            }
+
+            ValidationStatusText = ov.Passed ? "אימות עבר בהצלחה" : "האימות נכשל";
+            ValidationPassedBrush = ov.Passed ? "#27AE60" : "#E74C3C";
+
+            MissingColumns = ov.MissingColumns ?? new List<string>();
+            ExtraColumns = ov.ExtraColumns ?? new List<string>();
+            ValidationErrors = (ov.Errors ?? new List<RuleError>()).Select(e => $"{e.Rule}: {e.Message}").ToList();
+
+            if (ov.Stats != null)
+            {
+                StatsLine =
+                    $"שורות שנבדקו: {ov.Stats.RowsChecked:N0} | " +
+                    $"עמודות: {ov.Stats.ColumnsChecked} | " +
+                    $"גודל קובץ: {ov.Stats.FileSizeMb:F2}MB | " +
+                    $"יעד: {ov.Stats.TargetPath}";
+            }
+            else
+            {
+                StatsLine = "";
+            }
+        }
+    }
+}
