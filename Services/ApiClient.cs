@@ -302,5 +302,31 @@ namespace PipeWiseClient.Services
             [Newtonsoft.Json.JsonProperty("report")]
             public ReportInfo? Report { get; set; }
         }
+
+        // ------------------ Info & Validation ------------------
+
+        public async Task<SupportedSourcesResponse?> GetSupportedSourcesAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                var response = await _http.GetFromJsonAsync<SupportedSourcesResponse>("sources", ct);
+                return response;
+            }
+            catch (HttpRequestException ex)
+            {
+                // רשת או שגיאת שרת
+                throw new InvalidOperationException($"Failed to get supported sources: {ex.Message}", ex);
+            }
+            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                // timeout
+                throw new InvalidOperationException("Request timed out while getting supported sources", ex);
+            }
+            catch (Exception ex)
+            {
+                // שגיאה כללית
+                throw new InvalidOperationException($"Unexpected error getting supported sources: {ex.Message}", ex);
+            }
+        }
     }
 }
