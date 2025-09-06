@@ -58,7 +58,7 @@ namespace PipeWiseClient.Services
             if (!res.IsSuccessStatusCode) return new List<ReportInfo>();
 
             var json = await res.Content.ReadAsStringAsync(ct);
-            var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<ReportsListResponse>(json);
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<ReportsListResponse>(json);
             return parsed?.Reports ?? new List<ReportInfo>();
         }
 
@@ -84,7 +84,7 @@ namespace PipeWiseClient.Services
             if (!res.IsSuccessStatusCode) return null;
 
             var json = await res.Content.ReadAsStringAsync(ct);
-            var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<CleanupResponse>(json);
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<CleanupResponse>(json);
             return parsed?.CleanupResult;
         }
 
@@ -267,7 +267,7 @@ namespace PipeWiseClient.Services
             var fileContent = new StreamContent(fs);
             form.Add(fileContent, "file", Path.GetFileName(filePath));
 
-            var cfgJson = Newtonsoft.Json.JsonConvert.SerializeObject(config);
+            var cfgJson = System.Text.Json.JsonSerializer.Serialize(config);
             form.Add(new StringContent(cfgJson, Encoding.UTF8, "application/json"), "config");
 
             if (report != null)
@@ -293,14 +293,92 @@ namespace PipeWiseClient.Services
             if (!res.IsSuccessStatusCode) return null;
 
             var json = await res.Content.ReadAsStringAsync(ct);
-            var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<SingleReportResponse>(json);
+            var dto = System.Text.Json.JsonSerializer.Deserialize<SingleReportResponse>(json);
             return dto?.Report;
         }
 
         private class SingleReportResponse
         {
-            [Newtonsoft.Json.JsonProperty("report")]
+            [System.Text.Json.Serialization.JsonPropertyName("report")]
             public ReportInfo? Report { get; set; }
+        }
+
+        // ------------------ Info & Validation ------------------
+
+        public async Task<SupportedSourcesResponse?> GetSupportedSourcesAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                var response = await _http.GetFromJsonAsync<SupportedSourcesResponse>("sources", ct);
+                return response;
+            }
+            catch (HttpRequestException ex)
+            {
+                // רשת או שגיאת שרת
+                throw new InvalidOperationException($"Failed to get supported sources: {ex.Message}", ex);
+            }
+            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                // timeout
+                throw new InvalidOperationException("Request timed out while getting supported sources", ex);
+            }
+            catch (Exception ex)
+            {
+                // שגיאה כללית
+                throw new InvalidOperationException($"Unexpected error getting supported sources: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<ProcessorsResponse?> GetProcessorsAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                var response = await _http.GetFromJsonAsync<ProcessorsResponse>("processors", ct);
+                return response;
+            }
+            catch (HttpRequestException ex)
+            {
+                // רשת או שגיאת שרת
+                throw new InvalidOperationException($"Failed to get available processors: {ex.Message}", ex);
+            }
+            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                // timeout
+                throw new InvalidOperationException("Request timed out while getting processors", ex);
+            }
+            catch (Exception ex)
+            {
+                // שגיאה כללית
+                throw new InvalidOperationException($"Unexpected error getting processors: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<ColumnProfileResponse?> ProfileColumnsAsync(object payload, CancellationToken ct = default)
+        {
+            try
+            {
+                using var content = JsonContent.Create(payload);
+                var response = await _http.PostAsync("columns/profile", content, ct);
+                response.EnsureSuccessStatusCode();
+                
+                var result = await response.Content.ReadFromJsonAsync<ColumnProfileResponse>(cancellationToken: ct);
+                return result;
+            }
+            catch (HttpRequestException ex)
+            {
+                // רשת או שגיאת שרת
+                throw new InvalidOperationException($"Failed to profile columns: {ex.Message}", ex);
+            }
+            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                // timeout
+                throw new InvalidOperationException("Request timed out while profiling columns", ex);
+            }
+            catch (Exception ex)
+            {
+                // שגיאה כללית
+                throw new InvalidOperationException($"Unexpected error profiling columns: {ex.Message}", ex);
+            }
         }
     }
 }
