@@ -34,20 +34,23 @@ namespace PipeWiseClient.Models
 
     public class ReportInfo
     {
-        [JsonProperty("report_id")]     public string? ReportId { get; set; }
+        [JsonProperty("report_id")] public string? ReportId { get; set; }
         [JsonProperty("pipeline_name")] public string? PipelineName { get; set; }
-        [JsonProperty("status")]        public string? Status { get; set; }
-        [JsonProperty("duration")]      public string? Duration { get; set; }
-        [JsonProperty("start_time")]    public string? StartTime { get; set; }
-        [JsonProperty("created_at")]    public string? CreatedAt { get; set; }
-        [JsonProperty("input_rows")]    public int InputRows { get; set; }
-        [JsonProperty("output_rows")]   public int OutputRows { get; set; }
-        [JsonProperty("total_errors")]  public int TotalErrors { get; set; }
-        [JsonProperty("total_warnings")]public int TotalWarnings { get; set; }
-        [JsonProperty("source_type")]   public string? SourceType { get; set; }
-        [JsonProperty("html_path")]     public string? HtmlPath { get; set; }
-        [JsonProperty("pdf_path")]      public string? PdfPath { get; set; }
-        [JsonProperty("files_exist")]   public FilesExistInfo? FilesExist { get; set; }
+        [JsonProperty("status")] public string? Status { get; set; }
+        [JsonProperty("duration")] public string? Duration { get; set; }
+        [JsonProperty("start_time")] public string? StartTime { get; set; }
+        [JsonProperty("created_at")] public string? CreatedAt { get; set; }
+        [JsonProperty("input_rows")] public int InputRows { get; set; }
+        [JsonProperty("output_rows")] public int OutputRows { get; set; }
+        [JsonProperty("total_errors")] public int TotalErrors { get; set; }
+        [JsonProperty("total_warnings")] public int TotalWarnings { get; set; }
+        [JsonProperty("source_type")] public string? SourceType { get; set; }
+        [JsonProperty("html_path")] public string? HtmlPath { get; set; }
+        [JsonProperty("pdf_path")] public string? PdfPath { get; set; }
+        [JsonProperty("files_exist")] public FilesExistInfo? FilesExist { get; set; }
+        
+        [JsonProperty("output_validation")] public OutputValidation? OutputValidation { get; set; }
+
     }
 
     public class FilesExistInfo

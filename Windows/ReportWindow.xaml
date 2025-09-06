@@ -4,7 +4,7 @@
         Title="דוחות Pipeline" Height="600" Width="1000"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize">
-    
+
     <Window.Resources>
         <!-- סגנונות -->
         <Style x:Key="ModernButton" TargetType="Button">
@@ -18,10 +18,10 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                CornerRadius="3" 
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="3"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" 
+                            <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -64,172 +64,243 @@
 
         <!-- כותרת -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
-            <TextBlock Text="📊 דוחות Pipeline" 
-                       FontSize="24" FontWeight="Bold" 
-                       Foreground="#2C3E50" 
+            <TextBlock Text="📊 דוחות Pipeline"
+                       FontSize="24" FontWeight="Bold"
+                       Foreground="#2C3E50"
                        VerticalAlignment="Center"/>
-            <Button x:Name="RefreshButton" 
-                    Content="🔄 רענן" 
+            <Button x:Name="RefreshButton"
+                    Content="🔄 רענן"
                     Click="RefreshButton_Click"
                     Style="{StaticResource ModernButton}"
                     Margin="20,0,0,0"/>
         </StackPanel>
 
         <!-- פילטרים ופעולות -->
-        <Border Grid.Row="1" 
-                Background="#F8F9FA" 
-                BorderBrush="#E1E5E9" 
-                BorderThickness="1" 
-                CornerRadius="5" 
-                Padding="15" 
+        <Border Grid.Row="1"
+                Background="#F8F9FA"
+                BorderBrush="#E1E5E9"
+                BorderThickness="1"
+                CornerRadius="5"
+                Padding="15"
                 Margin="0,0,0,15">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="פעולות:" 
-                           FontWeight="Bold" 
-                           VerticalAlignment="Center" 
+                <TextBlock Text="פעולות:"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
                            Margin="0,0,10,0"/>
-                <Button x:Name="CleanupButton" 
-                        Content="🧹 נקה דוחות ישנים" 
+                <Button x:Name="CleanupButton"
+                        Content="🧹 נקה דוחות ישנים"
                         Click="CleanupButton_Click"
                         Style="{StaticResource ModernButton}"
                         Background="#E67E22"
                         Margin="5,0"/>
-                <TextBlock Text="סך הכל:" 
-                           FontWeight="Bold" 
-                           VerticalAlignment="Center" 
+                <TextBlock Text="סך הכל:"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
                            Margin="20,0,5,0"/>
-                <TextBlock x:Name="TotalReportsTextBlock" 
-                           Text="0 דוחות" 
-                           VerticalAlignment="Center" 
+                <TextBlock x:Name="TotalReportsTextBlock"
+                           Text="0 דוחות"
+                           VerticalAlignment="Center"
                            FontWeight="SemiBold"
                            Foreground="#2C3E50"/>
             </StackPanel>
         </Border>
 
         <!-- רשימת דוחות -->
-        <Border Grid.Row="2" 
-                Background="White" 
-                BorderBrush="#E1E5E9" 
-                BorderThickness="1" 
+        <Border Grid.Row="2"
+                Background="White"
+                BorderBrush="#E1E5E9"
+                BorderThickness="1"
                 CornerRadius="5">
             <Grid>
                 <!-- Loading indicator -->
-                <StackPanel x:Name="LoadingPanel" 
-                           HorizontalAlignment="Center" 
+                <StackPanel x:Name="LoadingPanel"
+                           HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            Visibility="Visible">
-                    <TextBlock Text="⏳ טוען דוחות..." 
-                               FontSize="16" 
-                               Foreground="#7F8C8D" 
+                    <TextBlock Text="⏳ טוען דוחות..."
+                               FontSize="16"
+                               Foreground="#7F8C8D"
                                HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Empty state -->
-                <StackPanel x:Name="EmptyStatePanel" 
-                           HorizontalAlignment="Center" 
+                <StackPanel x:Name="EmptyStatePanel"
+                           HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            Visibility="Collapsed">
-                    <TextBlock Text="📄" 
-                               FontSize="48" 
-                               HorizontalAlignment="Center" 
+                    <TextBlock Text="📄"
+                               FontSize="48"
+                               HorizontalAlignment="Center"
                                Foreground="#BDC3C7"/>
-                    <TextBlock Text="אין דוחות זמינים" 
-                               FontSize="18" 
-                               Foreground="#7F8C8D" 
+                    <TextBlock Text="אין דוחות זמינים"
+                               FontSize="18"
+                               Foreground="#7F8C8D"
                                HorizontalAlignment="Center"
                                Margin="0,10,0,0"/>
-                    <TextBlock Text="דוחות יופיעו כאן לאחר הרצת Pipeline" 
-                               FontSize="12" 
-                               Foreground="#95A5A6" 
+                    <TextBlock Text="דוחות יופיעו כאן לאחר הרצת Pipeline"
+                               FontSize="12"
+                               Foreground="#95A5A6"
                                HorizontalAlignment="Center"
                                Margin="0,5,0,0"/>
                 </StackPanel>
 
                 <!-- רשימת דוחות -->
                 <ScrollViewer x:Name="ReportsScrollViewer"
-                             VerticalScrollBarVisibility="Auto"
-                             Visibility="Collapsed">
+                              VerticalScrollBarVisibility="Auto"
+                              Visibility="Collapsed">
                     <ItemsControl x:Name="ReportsItemsControl">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="White" 
-                                        BorderBrush="#E1E5E9" 
-                                        BorderThickness="0,0,0,1" 
+                                <Border Background="White"
+                                        BorderBrush="#E1E5E9"
+                                        BorderThickness="0,0,0,1"
                                         Padding="15">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <!-- מקטע המידע הקיים על הדוח -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
 
-                                        <!-- מידע הדוח -->
-                                        <StackPanel Grid.Column="0">
-                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                                <TextBlock Text="{Binding PipelineName}" 
-                                                           FontSize="16" 
-                                                           FontWeight="Bold" 
-                                                           Foreground="#2C3E50"/>
-                                                <Border Background="{Binding StatusColor}" 
-                                                        CornerRadius="10" 
-                                                        Padding="8,2" 
-                                                        Margin="10,0,0,0">
-                                                    <TextBlock Text="{Binding StatusText}" 
-                                                               Foreground="White" 
-                                                               FontSize="10" 
-                                                               FontWeight="Bold"/>
-                                                </Border>
+                                            <!-- מידע הדוח -->
+                                            <StackPanel Grid.Column="0">
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                                    <TextBlock Text="{Binding PipelineName}"
+                                                               FontSize="16"
+                                                               FontWeight="Bold"
+                                                               Foreground="#2C3E50"/>
+                                                    <Border Background="{Binding StatusColor}"
+                                                            CornerRadius="10"
+                                                            Padding="8,2"
+                                                            Margin="10,0,0,0">
+                                                        <TextBlock Text="{Binding StatusText}"
+                                                                   Foreground="White"
+                                                                   FontSize="10"
+                                                                   FontWeight="Bold"/>
+                                                    </Border>
+                                                </StackPanel>
+
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                                    <TextBlock Text="📅" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="{Binding FormattedDate}"
+                                                               Foreground="#7F8C8D"
+                                                               Margin="0,0,15,0"/>
+                                                    <TextBlock Text="⏱️" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="{Binding Duration}"
+                                                               Foreground="#7F8C8D"
+                                                               Margin="0,0,15,0"/>
+                                                    <TextBlock Text="📊" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="{Binding RowsInfo}"
+                                                               Foreground="#7F8C8D"/>
+                                                </StackPanel>
+
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="📁" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="{Binding SourceType}"
+                                                               Foreground="#95A5A6"
+                                                               Margin="0,0,15,0"/>
+                                                    <TextBlock Text="❌" Margin="0,0,5,0" Foreground="#E74C3C"/>
+                                                    <TextBlock Text="{Binding TotalErrors}"
+                                                               Foreground="#E74C3C"
+                                                               Margin="0,0,15,0"/>
+                                                    <TextBlock Text="⚠️" Margin="0,0,5,0" Foreground="#F39C12"/>
+                                                    <TextBlock Text="{Binding TotalWarnings}"
+                                                               Foreground="#F39C12"/>
+                                                </StackPanel>
                                             </StackPanel>
 
-                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                                <TextBlock Text="📅" Margin="0,0,5,0"/>
-                                                <TextBlock Text="{Binding FormattedDate}" 
-                                                           Foreground="#7F8C8D" 
-                                                           Margin="0,0,15,0"/>
-                                                <TextBlock Text="⏱️" Margin="0,0,5,0"/>
-                                                <TextBlock Text="{Binding Duration}" 
-                                                           Foreground="#7F8C8D" 
-                                                           Margin="0,0,15,0"/>
-                                                <TextBlock Text="📊" Margin="0,0,5,0"/>
-                                                <TextBlock Text="{Binding RowsInfo}" 
-                                                           Foreground="#7F8C8D"/>
+                                            <!-- כפתורי פעולה -->
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                <Button Content="📄 HTML"
+                                                        Click="OpenHtmlButton_Click"
+                                                        Style="{StaticResource ActionButton}"
+                                                        Background="#3498DB"
+                                                        IsEnabled="{Binding HasHtml}"
+                                                        Tag="{Binding}"/>
+                                                <Button Content="📑 PDF"
+                                                        Click="DownloadPdfButton_Click"
+                                                        Style="{StaticResource ActionButton}"
+                                                        Background="#9B59B6"
+                                                        IsEnabled="{Binding HasPdf}"
+                                                        Tag="{Binding}"/>
+                                                <Button Content="🗑️ מחק"
+                                                        Click="DeleteButton_Click"
+                                                        Style="{StaticResource ActionButton}"
+                                                        Background="#E74C3C"
+                                                        Tag="{Binding}"/>
                                             </StackPanel>
+                                        </Grid>
 
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="📁" Margin="0,0,5,0"/>
-                                                <TextBlock Text="{Binding SourceType}" 
-                                                           Foreground="#95A5A6" 
-                                                           Margin="0,0,15,0"/>
-                                                <TextBlock Text="❌" Margin="0,0,5,0" Foreground="#E74C3C"/>
-                                                <TextBlock Text="{Binding TotalErrors}" 
-                                                           Foreground="#E74C3C" 
-                                                           Margin="0,0,15,0"/>
-                                                <TextBlock Text="⚠️" Margin="0,0,5,0" Foreground="#F39C12"/>
-                                                <TextBlock Text="{Binding TotalWarnings}" 
-                                                           Foreground="#F39C12"/>
-                                            </StackPanel>
-                                        </StackPanel>
+                                        <!-- Expander חדש: אימות תוצר -->
+                                        <Expander Header="אימות תוצר" Margin="0,10,0,0"
+                                                  Expanded="ValidationExpander_Expanded">
+                                            <Border Padding="10"
+                                                    Background="#F8F9FA"
+                                                    CornerRadius="4"
+                                                    BorderBrush="#E1E5E9"
+                                                    BorderThickness="1">
+                                                <StackPanel>
+                                                    <!-- מצב כללי -->
+                                                    <Border Padding="10" CornerRadius="4"
+                                                            Background="{Binding ValidationPassedBrush}">
+                                                        <TextBlock Text="{Binding ValidationStatusText}"
+                                                                   FontSize="16" FontWeight="Bold" Foreground="White"/>
+                                                    </Border>
 
-                                        <!-- כפתורי פעולה -->
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                            <Button Content="📄 HTML" 
-                                                    Click="OpenHtmlButton_Click"
-                                                    Style="{StaticResource ActionButton}"
-                                                    Background="#3498DB"
-                                                    IsEnabled="{Binding HasHtml}"
-                                                    Tag="{Binding}"/>
-                                            <Button Content="📑 PDF" 
-                                                    Click="DownloadPdfButton_Click"
-                                                    Style="{StaticResource ActionButton}"
-                                                    Background="#9B59B6"
-                                                    IsEnabled="{Binding HasPdf}"
-                                                    Tag="{Binding}"/>
-                                            <Button Content="🗑️ מחק" 
-                                                    Click="DeleteButton_Click"
-                                                    Style="{StaticResource ActionButton}"
-                                                    Background="#E74C3C"
-                                                    Tag="{Binding}"/>
-                                        </StackPanel>
-                                    </Grid>
+                                                    <!-- חוסרים/עודפים -->
+                                                    <StackPanel Margin="0,12,0,0">
+                                                        <TextBlock Text="עמודות חסרות:" FontWeight="Bold"/>
+                                                        <ItemsControl ItemsSource="{Binding MissingColumns}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock>
+                                                                        <TextBlock.Inlines>
+                                                                            <Run Text="•  "/>
+                                                                            <Run Text="{Binding}"/>
+                                                                        </TextBlock.Inlines>
+                                                                    </TextBlock>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+
+                                                        <TextBlock Text="עמודות עודפות:" FontWeight="Bold" Margin="0,8,0,0"/>
+                                                        <ItemsControl ItemsSource="{Binding ExtraColumns}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock>
+                                                                        <TextBlock.Inlines>
+                                                                            <Run Text="•  "/>
+                                                                            <Run Text="{Binding}"/>
+                                                                        </TextBlock.Inlines>
+                                                                    </TextBlock>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+
+                                                    <!-- שגיאות -->
+                                                    <StackPanel Margin="0,12,0,0">
+                                                        <TextBlock Text="חוקים שנכשלו:" FontWeight="Bold"/>
+                                                        <ItemsControl ItemsSource="{Binding ValidationErrors}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock Text="{Binding}" Foreground="#E74C3C"/>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+
+                                                    <!-- סטטיסטיקות -->
+                                                    <StackPanel Margin="0,12,0,0">
+                                                        <TextBlock Text="סטטיסטיקות:" FontWeight="Bold"/>
+                                                        <TextBlock Text="{Binding StatsLine}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </Expander>
+                                    </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -239,22 +310,22 @@
         </Border>
 
         <!-- סטטוס בר -->
-        <Border Grid.Row="3" 
-                Background="#34495E" 
-                CornerRadius="3" 
-                Padding="10,5" 
+        <Border Grid.Row="3"
+                Background="#34495E"
+                CornerRadius="3"
+                Padding="10,5"
                 Margin="0,15,0,0">
             <StackPanel Orientation="Horizontal">
-                <TextBlock x:Name="StatusTextBlock" 
-                           Text="מוכן" 
-                           Foreground="White" 
+                <TextBlock x:Name="StatusTextBlock"
+                           Text="מוכן"
+                           Foreground="White"
                            FontSize="11"/>
-                <TextBlock Text=" | " 
-                           Foreground="#BDC3C7" 
+                <TextBlock Text=" | "
+                           Foreground="#BDC3C7"
                            Margin="10,0"/>
-                <TextBlock x:Name="LastUpdateTextBlock" 
-                           Text="עדכון אחרון: לא עודכן" 
-                           Foreground="#BDC3C7" 
+                <TextBlock x:Name="LastUpdateTextBlock"
+                           Text="עדכון אחרון: לא עודכן"
+                           Foreground="#BDC3C7"
                            FontSize="11"/>
             </StackPanel>
         </Border>
