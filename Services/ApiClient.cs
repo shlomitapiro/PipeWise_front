@@ -259,34 +259,54 @@ namespace PipeWiseClient.Services
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
         // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
         public async Task<RunPipelineResult> RunAdHocPipelineAsync(
-            string filePath, PipelineConfig config, RunReportSettings? report = null, CancellationToken ct = default)
+            string filePath, 
+            PipelineConfig config, 
+            RunReportSettings? report = null, 
+            CancellationToken ct = default)
         {
             using var form = new MultipartFormDataContent();
-
-            await using var fs = File.OpenRead(filePath);
-            var fileContent = new StreamContent(fs);
+            
+            // הוסף את הקובץ עם Content-Type נכון
+            var fileBytes = await File.ReadAllBytesAsync(filePath, ct);
+            var fileContent = new ByteArrayContent(fileBytes);
+            
+            // הגדרת Content-Type לפי סוג הקובץ
+            var extension = Path.GetExtension(filePath).ToLower();
+            var contentType = extension switch
+            {
+                ".csv" => "text/csv",
+                ".json" => "application/json", 
+                ".xml" => "application/xml",
+                ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ".xls" => "application/vnd.ms-excel",
+                _ => "application/octet-stream"
+            };
+            
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
             form.Add(fileContent, "file", Path.GetFileName(filePath));
-
-            var cfgJson = System.Text.Json.JsonSerializer.Serialize(config);
-            form.Add(new StringContent(cfgJson, Encoding.UTF8, "application/json"), "config");
-
+            
+            // הוסף קונפיג - השתמש ב-System.Text.Json במקום Newtonsoft
+            var configJson = System.Text.Json.JsonSerializer.Serialize(config);
+            form.Add(new StringContent(configJson), "config");
+            
             if (report != null)
             {
-                var repJson = JsonSerializer.Serialize(report);
-                form.Add(new StringContent(repJson, Encoding.UTF8, "application/json"), "report_settings");
+                var reportJson = System.Text.Json.JsonSerializer.Serialize(report);
+                form.Add(new StringContent(reportJson), "report_settings");
             }
 
-            var res = await _http.PostAsync("run-pipeline", form, ct);
-            var text = await res.Content.ReadAsStringAsync(ct);
-            if (!res.IsSuccessStatusCode)
-                throw new HttpRequestException($"Server error ({res.StatusCode}): {text}");
-
-            // נפרש לתוך RunPipelineResult כדי לקבל TargetPath
-            var body = System.Text.Json.JsonSerializer.Deserialize<RunPipelineResult>(text);
-            if (body == null) throw new InvalidOperationException("Empty or invalid server response for RunAdHocPipelineAsync.");
-            return body;
+            // שימוש ב-_http במקום _client
+            var response = await _http.PostAsync("/run-pipeline", form, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException($"API Error: {response.StatusCode} - {content}");
+            }
+            
+            return System.Text.Json.JsonSerializer.Deserialize<RunPipelineResult>(content) 
+                ?? throw new InvalidOperationException("Invalid response");
         }
-
         public async Task<ReportInfo?> GetReportDetailsAsync(string reportId, CancellationToken ct = default)
         {
             var res = await _http.GetAsync($"reports/{reportId}", ct);
