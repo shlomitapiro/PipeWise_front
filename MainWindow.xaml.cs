@@ -296,9 +296,64 @@ namespace PipeWiseClient
             }
         }
 
+        private async Task DetectColumnTypes(string filePath)
+        {
+            try
+            {
+                var extension = Path.GetExtension(filePath).ToLower();
+                var fileType = extension switch
+                {
+                    ".csv" => "csv",
+                    ".json" => "json",
+                    ".xml" => "xml",
+                    ".xlsx" or ".xls" => "excel",
+                    _ => "csv"
+                };
+
+                var payload = new
+                {
+                    source = new
+                    {
+                        type = fileType,
+                        path = filePath
+                    }
+                };
+
+                var profileResult = await _api.ProfileColumnsAsync(payload);
+
+                if (profileResult?.Columns != null)
+                {
+                    foreach (var column in profileResult.Columns)
+                    {
+                        if (_columnSettings.ContainsKey(column.Name))
+                        {
+                            _columnSettings[column.Name].InferredType = column.InferredType;
+                        }
+                        else
+                        {
+                            _columnSettings[column.Name] = new ColumnSettings
+                            {
+                                InferredType = column.InferredType
+                            };
+                        }
+                    }
+                }
+                if (profileResult?.Columns != null)
+                {
+                    var debugInfo = string.Join("\n", profileResult.Columns.Select(c => 
+                        $"{c.Name}: {c.InferredType}"));
+                    AddInfoNotification("DEBUG - סוגי עמודות", debugInfo);
+                }
+            }
+            catch (Exception ex)
+            {
+                AddWarningNotification("זיהוי סוגי עמודות", "לא ניתן לזהות סוגי עמודות", ex.Message);
+            }
+        }
+
         #endregion
 
-        #region מערכת התראות
+            #region מערכת התראות
 
         public enum NotificationType
         {
@@ -628,7 +683,7 @@ namespace PipeWiseClient
             }
         }
 
-        private void LoadFileColumns(string filePath)
+       private async Task LoadFileColumns(string filePath)
         {
             try
             {
@@ -657,6 +712,7 @@ namespace PipeWiseClient
                 if (_columnNames.Count > 0)
                 {
                     ShowColumnsInterface();
+                    await DetectColumnTypes(filePath); // הוסף await כאן
                     AddInfoNotification("עמודות נטענו", $"נטענו {_columnNames.Count} עמודות מהקובץ");
                 }
                 else
@@ -757,15 +813,39 @@ namespace PipeWiseClient
 
             var stackPanel = new StackPanel();
 
+            // Panel עליון עם שם העמודה וכפתור לסימון כתאריך
+            var headerPanel = new Grid();
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
             var headerText = new TextBlock
             {
                 Text = $"📊 {columnName}",
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2C3E50")),
-                Margin = new Thickness(0, 0, 0, 10)
+                VerticalAlignment = VerticalAlignment.Center
             };
-            stackPanel.Children.Add(headerText);
+
+            var dateButton = new Button
+            {
+                Content = "📅",
+                Width = 30,
+                Height = 25,
+                FontSize = 12,
+                ToolTip = "סמן כעמודת תאריך",
+                Margin = new Thickness(5, 0, 0, 0),
+                Tag = columnName
+            };
+            dateButton.Click += DateButton_Click;
+
+            headerPanel.Children.Add(headerText);
+            headerPanel.Children.Add(dateButton);
+            Grid.SetColumn(headerText, 0);
+            Grid.SetColumn(dateButton, 1);
+
+            stackPanel.Children.Add(headerPanel);
+            stackPanel.Children.Add(new TextBlock { Height = 10 }); // ריווח
 
             var operationsPanel = new WrapPanel();
 
@@ -789,7 +869,8 @@ namespace PipeWiseClient
             {
                 ("שדה חובה", "required_field"),
                 ("אמת טווח מספרי", "validate_numeric_range"),
-                ("אמת אורך טקסט", "validate_text_length")
+                ("אמת אורך טקסט", "validate_text_length"),
+                ("אמת תקינות תאריכים", "validate_date_format")
             }, columnName);
             operationsPanel.Children.Add(validationGroup);
 
@@ -836,6 +917,22 @@ namespace PipeWiseClient
 
             foreach (var (displayName, operationName) in operations)
             {
+                if (operationName == "validate_date_format")
+                {
+                    var columnSetting = _columnSettings.ContainsKey(columnName) 
+                        ? _columnSettings[columnName] 
+                        : null;
+                    
+                    var isDateColumn = columnSetting?.InferredType?.ToLower().Contains("date") == true;
+                    
+                    // DEBUG
+                    AddInfoNotification("DEBUG - בדיקת עמודת תאריך", 
+                        $"עמודה: {columnName}\nסוג: {columnSetting?.InferredType}\nמזוהה כתאריך: {isDateColumn}");
+                    
+                    if (!isDateColumn)
+                        continue; // דלג על הcheckbox הזה אם העמודה לא מסוג תאריך
+                }
+                
                 var checkBox = new CheckBox
                 {
                     Content = displayName,
@@ -867,13 +964,80 @@ namespace PipeWiseClient
                     {
                         if (checkBox.IsChecked == true)
                         {
+                            // אם זה אימות תאריכים, פתח חלון הגדרות
+                            if (operationName == "validate_date_format")
+                            {
+                                var settingsWindow = new DateValidationSettingsWindow()
+                                {
+                                    Owner = this
+                                };
+                                
+                                var result = settingsWindow.ShowDialog();
+                                
+                                if (result != true)
+                                {
+                                    // המשתמש ביטל - בטל את הסימון
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+                                
+                                // שמור את ההגדרות
+                                var settings = _columnSettings[columnName];
+                                if (settings.DateValidationSettings == null)
+                                    settings.DateValidationSettings = new DateValidationSettings();
+                                    
+                                    // בחלק שמור את ההגדרות:
+                                    settings.DateValidationSettings.Action = settingsWindow.Action;
+                                    settings.DateValidationSettings.ReplacementDate = settingsWindow.ReplacementDate;
+                                    settings.DateValidationSettings.DateFormat = settingsWindow.DateFormat; // הוסף שורה זו
+                            }
+                            
                             _columnSettings[columnName].Operations.Add(operationName);
                         }
                         else
                         {
                             _columnSettings[columnName].Operations.Remove(operationName);
+                            
+                            // נקה הגדרות תאריך אם מבטלים
+                            if (operationName == "validate_date_format")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.DateValidationSettings = null;
+                            }
                         }
                     }
+                }
+            }
+        }
+
+        private void DateButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button button && button.Tag is string columnName)
+            {
+                var result = MessageBox.Show(
+                    $"האם לסמן את העמודה '{columnName}' כעמודת תאריך?\nזה יאפשר הפעלת פעולות אימות תאריכים עליה.",
+                    "סימון עמודת תאריך",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    if (_columnSettings.ContainsKey(columnName))
+                    {
+                        _columnSettings[columnName].InferredType = "date";
+                    }
+                    else
+                    {
+                        _columnSettings[columnName] = new ColumnSettings
+                        {
+                            InferredType = "date"
+                        };
+                    }
+
+                    AddSuccessNotification("עמודה סומנה", $"העמודה '{columnName}' סומנה כעמודת תאריך");
+                    
+                    // רענן את התצוגה
+                    ShowColumnsInterface();
                 }
             }
         }
@@ -1201,7 +1365,7 @@ namespace PipeWiseClient
             return result;
         }
 
-        private void ApplyConfigToUI(PipelineConfig cfg)
+        private async Task ApplyConfigToUI(PipelineConfig cfg)
         {
             _isApplyingConfig = true;
             try
@@ -1210,7 +1374,7 @@ namespace PipeWiseClient
                 if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
                 {
                     FilePathTextBox!.Text = sourcePath;
-                    LoadFileColumns(sourcePath);
+                    await LoadFileColumns(sourcePath);
                 }
 
                 if (!string.IsNullOrWhiteSpace(cfg.Target?.Type))
@@ -1550,6 +1714,40 @@ namespace PipeWiseClient
                         }
                         else if (operation.StartsWith("validate_") || operation == "required_field")
                         {
+                            
+                        if (operation == "validate_date_format" && settings.DateValidationSettings != null)
+                        {
+                            opDict["action"] = "validate_date";
+                            opDict["field"] = columnName;
+                            
+                            // הוסף גם פורמט קלט וגם פורמט יעד
+                            opDict["input_formats"] = new[] {
+                                "DD-MM-yyyy",    // פורמט עם נקודות
+                                "DD/MM/yyyy",    // פורמט עם קוים נטויים
+                                "YYYY-MM-DD",    // פורמט ISO
+                                "YYYY/MM/DD",    // פורמט ISO
+                                "MM/DD/YYYY",    // פורמט אמריקאי
+                                "MM-DD-YYYY"     // פורמט אמריקאי עם מקף
+                            };
+                            opDict["target_format"] = settings.DateValidationSettings.DateFormat; // הפורמט הרצוי
+                            
+                            // מה לעשות עם תאריכים לא תקינים
+                            if (settings.DateValidationSettings.Action == "replace_with_date")
+                            {
+                                opDict["on_fail"] = "replace";
+                                if (settings.DateValidationSettings.ReplacementDate.HasValue)
+                                {
+                                    opDict["replace_with"] = settings.DateValidationSettings.ReplacementDate.Value.ToString(settings.DateValidationSettings.DateFormat);
+                                }
+                            }
+                            else
+                            {
+                                opDict["on_fail"] = "drop_row";
+                            }
+                            
+                            opDict.Remove("column");
+                        }
+                            
                             validationOps.Add(opDict);
                         }
                         else if (operation == "sum" || operation == "average" || operation == "count" ||
@@ -1632,6 +1830,14 @@ namespace PipeWiseClient
                 var outputFileName = $"{baseName}_processed.{targetExt}";
                 try { Directory.CreateDirectory(OUTPUT_DIR); } catch { }
                 var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
+
+                // הוסף בסוף המתודה BuildPipelineConfig, לפני ה-return:
+                try 
+                {
+                    var debugJson = JsonConvert.SerializeObject(new { processors }, Formatting.Indented);
+                    AddInfoNotification("DEBUG - קונפיגורציה נשלחת", debugJson);
+                } 
+                catch { }
 
                 return new PipelineConfig
                 {
@@ -1719,12 +1925,19 @@ namespace PipeWiseClient
         #endregion
     }
 
-    // מחלקת עזר להגדרות עמודה
     public class ColumnSettings
     {
         public HashSet<string> Operations { get; set; } = new HashSet<string>();
+        public string InferredType { get; set; } = string.Empty;
+        public DateValidationSettings? DateValidationSettings { get; set; }
     }
 
+    public class DateValidationSettings
+    {
+        public string Action { get; set; } = "remove_row";
+        public DateTime? ReplacementDate { get; set; }
+        public string DateFormat { get; set; } = "dd/MM/yyyy";
+    }
     internal static class UIHelpers
     {
         public static void Let<T>(this T? obj, Action<T> act) where T : class
@@ -1732,4 +1945,5 @@ namespace PipeWiseClient
             if (obj is not null) act(obj);
         }
     }
+    
 }
