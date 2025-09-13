@@ -7,35 +7,43 @@ namespace PipeWiseClient
     {
         protected override void OnStartup(StartupEventArgs e)
         {
-            try
+            base.OnStartup(e);
+
+            this.DispatcherUnhandledException += (s, args) =>
             {
-                base.OnStartup(e);
-                
-                // הצגת החלון הראשי
-                var mainWindow = new MainWindow();
-                mainWindow.Show();
-            }
-            catch (Exception ex)
+                MessageBox.Show("שגיאה לא מטופלת: " + args.Exception.Message,
+                    "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+                args.Handled = true;
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += (s, args2) =>
             {
-                MessageBox.Show($"שגיאה בהפעלת האפליקציה: {ex.Message}\n\nStack Trace:\n{ex.StackTrace}", 
-                               "שגיאה קריטית", 
-                               MessageBoxButton.OK, 
-                               MessageBoxImage.Error);
-            }
+                if (args2.ExceptionObject is Exception ex)
+                {
+                    MessageBox.Show("שגיאה כללית: " + ex.Message,
+                        "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            };
+
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, args3) =>
+            {
+                MessageBox.Show("שגיאה מתוך Task: " + args3.Exception?.Message,
+                    "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
+                args3.SetObserved();
+            };
+
+            var win = new MainWindow();
+            this.MainWindow = win;
+            win.Show();
         }
 
         protected override void OnExit(ExitEventArgs e)
         {
-            try
-            {
-                base.OnExit(e);
-            }
+            try { base.OnExit(e); }
             catch (Exception ex)
             {
-                MessageBox.Show($"שגיאה בסגירת האפליקציה: {ex.Message}", 
-                               "שגיאה", 
-                               MessageBoxButton.OK, 
-                               MessageBoxImage.Warning);
+                MessageBox.Show($"שגיאה בסגירת האפליקציה: {ex.Message}",
+                    "שגיאה", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
     }
