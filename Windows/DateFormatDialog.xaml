@@ -1,0 +1,39 @@
+<Window x:Class="PipeWiseClient.Windows.DateFormatDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="קביעת פורמט תאריך" Height="220" Width="520"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#FAFAFA" FlowDirection="RightToLeft">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold"
+               Text="בחירת פורמט תאריך לעמודה" />
+
+    <TextBlock Grid.Row="1" Margin="0,8,0,12" Foreground="#555"
+               Text="ודא שהעמודה היא באמת מסוג תאריך. אם לא — הפעולה תבוטל ולא ייעשה שינוי." />
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center">
+      <TextBlock Text="פורמט יעד:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <ComboBox x:Name="FormatCombo" Width="340">
+        <!-- תצוגה משמאל → ערך Python strftime -->
+        <ComboBoxItem Content="YYYY-MM-DD   (2025-09-12)" Tag="%Y-%m-%d" IsSelected="True"/>
+        <ComboBoxItem Content="DD/MM/YYYY   (12/09/2025)" Tag="%d/%m/%Y"/>
+        <ComboBoxItem Content="MM/DD/YYYY   (09/12/2025)" Tag="%m/%d/%Y"/>
+        <ComboBoxItem Content="DD-MM-YYYY   (12-09-2025)" Tag="%d-%m-%Y"/>
+        <ComboBoxItem Content="YYYY/MM/DD   (2025/09/12)" Tag="%Y/%m/%d"/>
+        <ComboBoxItem Content="DD.MM.YYYY   (12.09.2025)" Tag="%d.%m.%Y"/>
+      </ComboBox>
+    </StackPanel>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,12,0,0">
+      <Button Content="אישור" Width="90" Margin="0,0,8,0" Click="Ok_Click"/>
+      <Button Content="ביטול" Width="90" Click="Cancel_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>

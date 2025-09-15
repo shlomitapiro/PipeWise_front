@@ -1,0 +1,33 @@
+<Window x:Class="PipeWiseClient.Windows.ValuePromptDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="הזנת ערך חלופי" Height="200" Width="420"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Background="#FAFAFA"
+        FlowDirection="RightToLeft">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+    <TextBlock x:Name="HelpText" Grid.Row="1" Foreground="#555" Margin="0,0,0,12"/>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center" >
+      <TextBlock Text="ערך:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <ComboBox x:Name="BoolCombo" Width="140" Visibility="Collapsed">
+        <ComboBoxItem Content="false" IsSelected="True"/>
+        <ComboBoxItem Content="true"/>
+      </ComboBox>
+      <DatePicker x:Name="DatePickerCtl" Width="160" Visibility="Collapsed"/>
+      <TextBox x:Name="ValueBox" Width="260" Visibility="Visible"/>
+    </StackPanel>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="אישור" Width="80" Margin="0,0,8,0" Click="Ok_Click"/>
+      <Button Content="ביטול" Width="80" Click="Cancel_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>

@@ -644,7 +644,7 @@ namespace PipeWiseClient
             }
         }
 
-        private void BrowseFile_Click(object sender, RoutedEventArgs e)
+        private async void BrowseFile_Click(object sender, RoutedEventArgs e)
         {
             try
             {
@@ -672,7 +672,7 @@ namespace PipeWiseClient
                     _hasCompatibleConfig = false;
                     _hasLastRunReport = false;
 
-                    LoadFileColumns(dialog.FileName);
+                    await LoadFileColumns(dialog.FileName);
 
                     SetPhase(UiPhase.FileSelected);
                 }
@@ -711,8 +711,8 @@ namespace PipeWiseClient
 
                 if (_columnNames.Count > 0)
                 {
+                    await DetectColumnTypes(filePath);
                     ShowColumnsInterface();
-                    await DetectColumnTypes(filePath); // הוסף await כאן
                     AddInfoNotification("עמודות נטענו", $"נטענו {_columnNames.Count} עמודות מהקובץ");
                 }
                 else
@@ -827,33 +827,29 @@ namespace PipeWiseClient
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            var dateButton = new Button
-            {
-                Content = "📅",
-                Width = 30,
-                Height = 25,
-                FontSize = 12,
-                ToolTip = "סמן כעמודת תאריך",
-                Margin = new Thickness(5, 0, 0, 0),
-                Tag = columnName
-            };
-            dateButton.Click += DateButton_Click;
 
             headerPanel.Children.Add(headerText);
-            headerPanel.Children.Add(dateButton);
             Grid.SetColumn(headerText, 0);
-            Grid.SetColumn(dateButton, 1);
 
             stackPanel.Children.Add(headerPanel);
-            stackPanel.Children.Add(new TextBlock { Height = 10 }); // ריווח
+            stackPanel.Children.Add(new TextBlock { Height = 10 });
 
             var operationsPanel = new WrapPanel();
 
             var cleaningGroup = CreateOperationGroup("🧹 ניקוי", new[]
             {
-                ("הסר אם ריק", "remove_if_missing"),
-                ("החלף ערכים ריקים", "replace_nulls"),
-                ("נקה רווחים", "strip_whitespace")
+                ("הסר מזהה לא חוקי",   "remove_invalid_identifier"),
+                ("החלף ערכים ריקים", "replace_empty_values"),
+                ("החלף ערכי NULL",  "replace_null_values"),
+                ("הסר ערכים ריקים", "remove_empty_values"),
+                ("הסר ערכי NULL",   "remove_null_values"),
+                ("הפוך לאותיות גדולות", "to_uppercase"),
+                ("הפוך לאותיות קטנות",  "to_lowercase"),
+                ("הסר תווים מיוחדים",   "remove_special_characters"),
+                ("אמת טווח מספרי",      "set_numeric_range"),
+                ("קבע פורמט תאריך",     "set_date_format"),
+                ("הסר תאריך לא חוקי",   "remove_invalid_dates"),
+                
             }, columnName);
             operationsPanel.Children.Add(cleaningGroup);
 
@@ -971,77 +967,238 @@ namespace PipeWiseClient
                                 {
                                     Owner = this
                                 };
-                                
+
                                 var result = settingsWindow.ShowDialog();
-                                
+
                                 if (result != true)
                                 {
                                     // המשתמש ביטל - בטל את הסימון
                                     checkBox.IsChecked = false;
                                     return;
                                 }
-                                
+
                                 // שמור את ההגדרות
                                 var settings = _columnSettings[columnName];
                                 if (settings.DateValidationSettings == null)
                                     settings.DateValidationSettings = new DateValidationSettings();
-                                    
-                                    // בחלק שמור את ההגדרות:
-                                    settings.DateValidationSettings.Action = settingsWindow.Action;
-                                    settings.DateValidationSettings.ReplacementDate = settingsWindow.ReplacementDate;
-                                    settings.DateValidationSettings.DateFormat = settingsWindow.DateFormat; // הוסף שורה זו
+
+                                // בחלק שמור את ההגדרות:
+                                settings.DateValidationSettings.Action = settingsWindow.Action;
+                                settings.DateValidationSettings.ReplacementDate = settingsWindow.ReplacementDate;
+                                settings.DateValidationSettings.DateFormat = settingsWindow.DateFormat; // הוסף שורה זו
                             }
-                            
+
+                            else if (operationName == "set_numeric_range")
+                            {
+                                var t = (_columnSettings[columnName].InferredType ?? "string").ToLowerInvariant();
+                                bool isNumeric = new[] { "int", "integer", "long", "float", "double", "decimal", "number", "numeric" }
+                                                    .Any(x => t.Contains(x));
+                                if (!isNumeric)
+                                {
+                                    MessageBox.Show(this, "לא ניתן להגדיר טווח על עמודה שאינה מספרית.", "פעולה לא נתמכת", MessageBoxButton.OK, MessageBoxImage.Information);
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+                                var dlg = new NumericRangeDialog(columnName) { Owner = this };
+                                var ok = dlg.ShowDialog() == true;
+                                if (!ok) { checkBox.IsChecked = false; return; }
+
+                                var s = _columnSettings[columnName];
+                                s.NumericRange ??= new NumericRangeSettings();
+                                s.NumericRange.Min = dlg.MinValue;
+                                s.NumericRange.Max = dlg.MaxValue;
+                                s.NumericRange.ActionOnViolation = dlg.ActionOnViolation ?? "remove";
+                                s.NumericRange.ReplacementValue = dlg.ReplacementValue;
+                            }
+
+                            else if (operationName == "replace_empty_values")
+                            {
+                                var inferredType = _columnSettings[columnName].InferredType ?? "string";
+                                var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
+                                var ok = dlg.ShowDialog() == true;
+                                if (!ok)
+                                {
+                                    checkBox.IsChecked = false; // המשתמש ביטל
+                                    return;
+                                }
+                                // שמור את ההגדרה לעמודה
+                                var s = _columnSettings[columnName];
+                                s.ReplaceEmpty ??= new ReplaceEmptySettings();
+                                s.ReplaceEmpty.Value = dlg.ReplacementValue;
+                                s.ReplaceEmpty.MaxLength = dlg.MaxLength;
+                            }
+
+                            else if (operationName == "replace_null_values")
+                            {
+                                var inferredType = _columnSettings[columnName].InferredType ?? "string";
+                                var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
+                                var ok = dlg.ShowDialog() == true;
+                                if (!ok) { checkBox.IsChecked = false; return; }
+                                var s = _columnSettings[columnName];
+                                s.ReplaceNull ??= new ReplaceEmptySettings();
+                                s.ReplaceNull.Value = dlg.ReplacementValue;
+                                s.ReplaceNull.MaxLength = dlg.MaxLength;
+                            }
+
+                            else if (operationName == "set_date_format")
+                            {
+                                static bool IsTypeSupportedForDateFormat(string? inferred)
+                                {
+                                    if (string.IsNullOrWhiteSpace(inferred)) return true; // fail-open כדי למנוע אזהרות שווא
+                                    var t = inferred.ToLowerInvariant();
+                                    return t.Contains("date") || t.Contains("time") || t.Contains("timestamp")
+                                        || t.Contains("string") || t.Contains("text") || t.Contains("mixed");
+                                }
+
+                                var t = _columnSettings[columnName].InferredType;
+                                var looksLikeDate = IsTypeSupportedForDateFormat(t);
+                                var dlg = new Windows.DateFormatDialog(columnName, looksLikeDate) { Owner = this };
+
+                                // פותחים תמיד את הדיאלוג
+                                var ok = dlg.ShowDialog() == true;
+
+                                // אם המשתמש ביטל או לא נבחר פורמט – מבטלים את הסימון
+                                if (!ok || string.IsNullOrWhiteSpace(dlg.SelectedPythonFormat))
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+
+                                // שמירת הפורמט שנבחר
+                                var s = _columnSettings[columnName];
+                                s.DateFormatApply ??= new DateFormatApplySettings();
+                                s.DateFormatApply.TargetFormat = dlg.SelectedPythonFormat!;
+                            }
+
+                            else if (operationName == "remove_invalid_dates")
+                            {
+                                var dlg = new RemoveInvalidDatesDialog(columnName) { Owner = this };
+                                var ok = dlg.ShowDialog() == true;
+                                if (!ok) { checkBox.IsChecked = false; return; }
+
+                                if (!_columnSettings.TryGetValue(columnName, out var s))
+                                {
+                                    s = new ColumnSettings();
+                                    _columnSettings[columnName] = s;
+                                }
+                                s.InvalidDateRemoval ??= new InvalidDateRemovalSettings();
+
+                                s.InvalidDateRemoval.MinYear = dlg.MinYear;
+                                s.InvalidDateRemoval.MaxYear = dlg.MaxYear;
+                                s.InvalidDateRemoval.MinDateIso = dlg.MinDateIso;   // NEW
+                                s.InvalidDateRemoval.MaxDateIso = dlg.MaxDateIso;   // NEW
+                                s.InvalidDateRemoval.EmptyAction = dlg.EmptyAction;
+                                s.InvalidDateRemoval.EmptyReplacement = dlg.EmptyReplacement;
+                            }
+
+                            else if (operationName == "remove_invalid_identifier")
+                            {
+                                var dlg = new RemoveInvalidIdentifierDialog(columnName) { Owner = this };
+                                var ok = dlg.ShowDialog() == true;
+                                if (!ok)
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+
+                                var s = _columnSettings[columnName];
+                                s.IdentifierValidation ??= new IdentifierValidationSettings();
+                                s.IdentifierValidation.IdType = dlg.IdType;
+                                s.IdentifierValidation.TreatWhitespaceAsEmpty = dlg.TreatWhitespaceAsEmpty;
+                                s.IdentifierValidation.EmptyAction = dlg.EmptyAction;
+                                s.IdentifierValidation.EmptyReplacement = dlg.EmptyAction == "replace" ? dlg.EmptyReplacement : null;
+
+                                // אפס את התתי-אובייקטים ואז מלה אותם לפי הסוג שנבחר
+                                s.IdentifierValidation.Numeric = null;
+                                s.IdentifierValidation.String = null;
+                                s.IdentifierValidation.Uuid = null;
+
+                                if (dlg.IdType == "numeric")
+                                {
+                                    s.IdentifierValidation.Numeric = new NumericIdentifierOptions
+                                    {
+                                        IntegerOnly = dlg.NumIntegerOnly,
+                                        AllowLeadingZeros = dlg.NumAllowLeadingZeros,
+                                        AllowNegative = dlg.NumAllowNegative,
+                                        AllowThousandSeparators = dlg.NumAllowThousandSeparators,
+                                        MaxDigits = dlg.NumMaxDigits
+                                    };
+                                }
+                                else if (dlg.IdType == "string")
+                                {
+                                    s.IdentifierValidation.String = new StringIdentifierOptions
+                                    {
+                                        MinLength = dlg.StrMinLength,
+                                        MaxLength = dlg.StrMaxLength,
+                                        DisallowWhitespace = dlg.StrDisallowWhitespace,
+                                        Regex = dlg.StrRegex
+                                    };
+                                }
+                                else if (dlg.IdType == "uuid")
+                                {
+                                    s.IdentifierValidation.Uuid = new UuidIdentifierOptions
+                                    {
+                                        AcceptHyphenated = dlg.UuidAcceptHyphenated, // תמיד true
+                                        AcceptBraced = dlg.UuidAcceptBraced,
+                                        AcceptUrn = dlg.UuidAcceptUrn
+                                    };
+                                }
+                            }
+
                             _columnSettings[columnName].Operations.Add(operationName);
                         }
                         else
                         {
                             _columnSettings[columnName].Operations.Remove(operationName);
-                            
+
                             // נקה הגדרות תאריך אם מבטלים
                             if (operationName == "validate_date_format")
                             {
                                 var settings = _columnSettings[columnName];
                                 settings.DateValidationSettings = null;
                             }
+
+                            if (operationName == "replace_empty_values")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.ReplaceEmpty = null;
+                            }
+
+                            if (operationName == "replace_null_values")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.ReplaceNull = null;
+                            }
+
+                            if (operationName == "set_numeric_range")
+                            {
+                                var s = _columnSettings[columnName];
+                                s.NumericRange = null;
+                            }
+
+                            if (operationName == "set_date_format")
+                            {
+                                var s = _columnSettings[columnName];
+                                s.DateFormatApply = null;
+                            }
+
+                            if (operationName == "remove_invalid_dates")
+                            {
+                                var s = _columnSettings[columnName];
+                                s.InvalidDateRemoval = null;
+                            }
+                            
+                            if (operationName == "remove_invalid_identifier")
+                            {
+                                var s = _columnSettings[columnName];
+                                s.IdentifierValidation = null;
+                            }
+
                         }
                     }
                 }
             }
         }
-
-        private void DateButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button button && button.Tag is string columnName)
-            {
-                var result = MessageBox.Show(
-                    $"האם לסמן את העמודה '{columnName}' כעמודת תאריך?\nזה יאפשר הפעלת פעולות אימות תאריכים עליה.",
-                    "סימון עמודת תאריך",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
-
-                if (result == MessageBoxResult.Yes)
-                {
-                    if (_columnSettings.ContainsKey(columnName))
-                    {
-                        _columnSettings[columnName].InferredType = "date";
-                    }
-                    else
-                    {
-                        _columnSettings[columnName] = new ColumnSettings
-                        {
-                            InferredType = "date"
-                        };
-                    }
-
-                    AddSuccessNotification("עמודה סומנה", $"העמודה '{columnName}' סומנה כעמודת תאריך");
-                    
-                    // רענן את התצוגה
-                    ShowColumnsInterface();
-                }
-            }
-        }
-
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -1182,7 +1339,7 @@ namespace PipeWiseClient
                     else
                     {
                         FilePathTextBox!.Text = fileDlg.FileName;
-                        LoadFileColumns(fileDlg.FileName);
+                        await LoadFileColumns(fileDlg.FileName);
                         AddInfoNotification("נבחר קובץ", "כעת ניתן לטעון קונפיגורציה. ודא שהיא תואמת למבנה הקובץ.");
                     }
 
@@ -1235,7 +1392,7 @@ namespace PipeWiseClient
                 _loadedConfig = cfg!;
                 _hasCompatibleConfig = true;
                 AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(cfgDlg.FileName)}");
-                ApplyConfigToUI(_loadedConfig);
+                await ApplyConfigToUI(_loadedConfig);
                 SetPhase(UiPhase.ConfigLoadedCompatible);
             }
             catch (Exception ex)
@@ -1279,7 +1436,10 @@ namespace PipeWiseClient
                     {
                         foreach (var tok in jarr.OfType<Newtonsoft.Json.Linq.JObject>())
                         {
-                            var col = (string?)tok["column"];
+                            string? col = (string?)tok["column"] ?? (string?)tok["field"];
+                            if (col == null && tok["fields"] is JArray farr && farr.First is JValue v && v.Type == JTokenType.String)
+                                col = (string?)v;
+
                             if (!string.IsNullOrWhiteSpace(col))
                                 requiredCols.Add(col);
                         }
@@ -1392,7 +1552,11 @@ namespace PipeWiseClient
                         foreach (var tok in jarr.OfType<JObject>())
                         {
                             var action = (string?)tok["action"];
+                            // נסה column, ואם אין – field, ואם אין – הראשון מתוך fields
                             var column = (string?)tok["column"];
+                            column ??= (string?)tok["field"];
+                            if (column == null && tok["fields"] is JArray farr && farr.First is JValue v && v.Type == JTokenType.String)
+                                column = (string?)v;
                             if (string.IsNullOrWhiteSpace(action)) continue;
 
                             if (string.IsNullOrWhiteSpace(column))
@@ -1680,16 +1844,16 @@ namespace PipeWiseClient
                 if (RemoveEmptyRowsCheckBox?.IsChecked == true)
                     globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_empty_rows" });
 
-                if (RemoveDuplicatesCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_duplicates" });
-
-                if (StripWhitespaceCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "strip_whitespace" });
-
                 var cleaningOps = new List<Dictionary<string, object>>();
                 var transformOps = new List<Dictionary<string, object>>();
                 var validationOps = new List<Dictionary<string, object>>();
                 var aggregationOps = new List<Dictionary<string, object>>();
+                var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+                     "replace_empty_values","replace_null_values",
+                     "remove_empty_values","remove_null_values",
+                     "to_uppercase","to_lowercase","remove_special_characters",
+                     "set_numeric_range","set_date_format"
+                 };
 
                 foreach (var kvp in _columnSettings)
                 {
@@ -1700,11 +1864,205 @@ namespace PipeWiseClient
                     {
                         var opDict = new Dictionary<string, object>
                         {
-                            ["action"] = operation,
-                            ["column"] = columnName
+                            ["action"] = operation
                         };
 
-                        if (operation.StartsWith("remove_") || operation.StartsWith("replace_") || operation == "strip_whitespace")
+                        // Prefer backend-compatible keys for Cleaner operations
+                        if (string.Equals(operation, "replace_empty_values", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "replace_null_values", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "set_numeric_range", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "set_date_format", StringComparison.OrdinalIgnoreCase))
+                        {
+                            opDict["field"] = columnName;
+                        }
+
+                        if (string.Equals(operation, "set_numeric_range", StringComparison.OrdinalIgnoreCase) &&
+                            settings.NumericRange is not null)
+                        {
+                            // שליחת גבולות רק אם קיימים
+                            if (settings.NumericRange.Min.HasValue)
+                                opDict["min_value"] = settings.NumericRange.Min.Value;
+                            if (settings.NumericRange.Max.HasValue)
+                                opDict["max_value"] = settings.NumericRange.Max.Value;
+
+                            // פעולה בחריגה
+                            opDict["action_on_violation"] = string.IsNullOrWhiteSpace(settings.NumericRange.ActionOnViolation)
+                                ? "remove" : settings.NumericRange.ActionOnViolation;
+
+                            if (string.Equals(settings.NumericRange.ActionOnViolation, "replace", StringComparison.OrdinalIgnoreCase)
+                                && settings.NumericRange.ReplacementValue.HasValue)
+                            {
+                                opDict["replacement_value"] = settings.NumericRange.ReplacementValue.Value;
+                            }
+                        }
+
+                        if (string.Equals(operation, "set_date_format", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var fmt = settings.DateFormatApply?.TargetFormat;
+
+                            opDict["input_formats"] = new[]
+                            {
+                                // 4 ספרות שנה – Day-First בעדיפות
+                                "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",
+                                "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y",
+                                "%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d.%m.%Y %H:%M:%S",
+                                "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S",
+                                // 2 ספרות שנה – Day-First בעדיפות
+                                "%d-%m-%y", "%d/%m/%y", "%d.%m.%y",
+                                "%y-%m-%d", "%y/%m/%d", "%m/%d/%y",
+                                "%d-%m-%y %H:%M:%S", "%d/%m/%y %H:%M:%S", "%y-%m-%d %H:%M:%S",
+                            };
+
+                            // העדפה מ-UI אם הוגדרה; אחרת – אם היעד CSV נכפה מחרוזת כדי לשמר את הפורמט
+                            var targetType = GetSelectedTargetType();
+                            if (!string.IsNullOrWhiteSpace(settings.DateFormatApply?.OutputAs))
+                                opDict["output_as"] = settings.DateFormatApply.OutputAs!;
+                            else if (string.Equals(targetType, "csv", StringComparison.OrdinalIgnoreCase))
+                                opDict["output_as"] = "string";
+                            
+                            if (!string.IsNullOrWhiteSpace(fmt))
+                                opDict["target_format"] = fmt;
+                            else
+                                opDict["target_format"] = "%Y-%m-%d";
+
+                            // מה לעשות כשלא מצליחים לפרסר תאריך
+                            opDict["action_on_violation"] = "warn";
+                        }
+
+                        if (string.Equals(operation, "remove_invalid_dates", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var s = settings.InvalidDateRemoval;
+
+                            opDict["field"] = columnName;
+                            opDict["action"] = "remove_invalid_dates";
+
+                            // אותם input_formats כמו ב-set_date_format
+                            opDict["input_formats"] = new[]
+                            {
+                                "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",
+                                "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y",
+                                "%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d.%m.%Y %H:%M:%S",
+                                "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S",
+                                "%d-%m-%y", "%d/%m/%y", "%d.%m.%y",
+                                "%y-%m-%d", "%y/%m/%d", "%m/%d/%y",
+                                "%d-%m-%y %H:%M:%S", "%d/%m/%y %H:%M:%S", "%y-%m-%d %H:%M:%S",
+                            };
+
+                            if (s != null)
+                            {
+                                if (s.MinYear.HasValue) opDict["min_year"] = s.MinYear.Value;
+                                if (s.MaxYear.HasValue) opDict["max_year"] = s.MaxYear.Value;
+                                if (!string.IsNullOrWhiteSpace(s.MinDateIso)) opDict["min_date"] = s.MinDateIso;
+                                if (!string.IsNullOrWhiteSpace(s.MaxDateIso)) opDict["max_date"] = s.MaxDateIso;
+
+                                opDict["empty_action"] = string.IsNullOrWhiteSpace(s.EmptyAction) ? "remove" : s.EmptyAction;
+                                if (string.Equals(s.EmptyAction, "replace", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(s.EmptyReplacement))
+                                    opDict["empty_replacement"] = s.EmptyReplacement;
+                            }
+
+                            opDict["treat_whitespace_as_empty"] = true;
+
+                            cleaningOps.Add(opDict);
+                            continue;
+                        }
+
+                        if (string.Equals(operation, "replace_empty_values", StringComparison.OrdinalIgnoreCase) &&
+                            settings.ReplaceEmpty is not null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(settings.ReplaceEmpty.Value))
+                                opDict["replacement_value"] = settings.ReplaceEmpty.Value!;
+
+                            // נשלח תמיד לשרת (עם ברירות מחדל בצד השרת לתאימות)
+                            opDict["expected_type"] = string.IsNullOrWhiteSpace(settings.InferredType) ? "string" : settings.InferredType.ToLowerInvariant();
+                            opDict["max_length"] = settings.ReplaceEmpty.MaxLength <= 0 ? 255 : settings.ReplaceEmpty.MaxLength;
+                        }
+
+                        if (string.Equals(operation, "replace_null_values", StringComparison.OrdinalIgnoreCase) &&
+                            settings.ReplaceNull is not null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(settings.ReplaceNull.Value))
+                                opDict["replacement_value"] = settings.ReplaceNull.Value!;
+
+                            opDict["expected_type"] = string.IsNullOrWhiteSpace(settings.InferredType) ? "string" : settings.InferredType.ToLowerInvariant();
+                            opDict["max_length"] = settings.ReplaceNull.MaxLength <= 0 ? 255 : settings.ReplaceNull.MaxLength;
+
+                            opDict["null_definitions"] = new [] { "null", "n/a", "none" };
+                        }
+
+                        if (string.Equals(operation, "remove_invalid_identifier", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var s = settings.IdentifierValidation;
+                            if (s != null)
+                            {
+                                opDict["field"] = columnName;
+                                opDict["action"] = "remove_invalid_identifier";
+                                opDict["id_type"] = string.IsNullOrWhiteSpace(s.IdType) ? "numeric" : s.IdType;
+                                opDict["treat_whitespace_as_empty"] = s.TreatWhitespaceAsEmpty;
+
+                                opDict["empty_action"] = string.IsNullOrWhiteSpace(s.EmptyAction) ? "remove" : s.EmptyAction;
+                                if (string.Equals(s.EmptyAction, "replace", StringComparison.OrdinalIgnoreCase)
+                                    && !string.IsNullOrWhiteSpace(s.EmptyReplacement))
+                                {
+                                    opDict["empty_replacement"] = s.EmptyReplacement;
+                                }
+
+                                // תתי-אובייקטים לפי סוג
+                                if (s.IdType == "numeric" && s.Numeric != null)
+                                {
+                                    opDict["numeric"] = new Dictionary<string, object?>
+                                    {
+                                        ["integer_only"] = s.Numeric.IntegerOnly,
+                                        ["allow_leading_zeros"] = s.Numeric.AllowLeadingZeros,
+                                        ["allow_negative"] = s.Numeric.AllowNegative,
+                                        ["allow_thousand_separators"] = s.Numeric.AllowThousandSeparators,
+                                        ["max_digits"] = s.Numeric.MaxDigits
+                                    };
+                                }
+                                else if (s.IdType == "string" && s.String != null)
+                                {
+                                    opDict["string"] = new Dictionary<string, object?>
+                                    {
+                                        ["min_length"] = s.String.MinLength,
+                                        ["max_length"] = s.String.MaxLength,
+                                        ["disallow_whitespace"] = s.String.DisallowWhitespace,
+                                        ["regex"] = string.IsNullOrWhiteSpace(s.String.Regex) ? null : s.String.Regex
+                                    };
+                                }
+                                else if (s.IdType == "uuid" && s.Uuid != null)
+                                {
+                                    opDict["uuid"] = new Dictionary<string, object?>
+                                    {
+                                        ["accept_hyphenated"] = s.Uuid.AcceptHyphenated,
+                                        ["accept_braced"] = s.Uuid.AcceptBraced,
+                                        ["accept_urn"] = s.Uuid.AcceptUrn
+                                    };
+                                }
+
+                                cleaningOps.Add(opDict);
+                                continue; // המשך ללולאה הבאה
+                            }
+                        }
+
+
+                        if (string.Equals(operation, "strip_whitespace", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "to_uppercase", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "to_lowercase", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "remove_special_characters", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "remove_empty_values", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(operation, "remove_null_values", StringComparison.OrdinalIgnoreCase))
+                        {
+                            opDict["fields"] = new[] { columnName };
+                        }
+                        else if (!opDict.ContainsKey("field"))
+                        {
+                            // רק אם לא קיים field – נשתמש ב-column
+                            opDict["column"] = columnName;
+                        }
+
+                        if (operation.StartsWith("remove_") || operation.StartsWith("replace_")
+                            || operation == "strip_whitespace"
+                            || operation == "set_numeric_range"
+                            || operation == "set_date_format")
                         {
                             cleaningOps.Add(opDict);
                         }
@@ -1714,40 +2072,39 @@ namespace PipeWiseClient
                         }
                         else if (operation.StartsWith("validate_") || operation == "required_field")
                         {
-                            
-                        if (operation == "validate_date_format" && settings.DateValidationSettings != null)
-                        {
-                            opDict["action"] = "validate_date";
-                            opDict["field"] = columnName;
-                            
-                            // הוסף גם פורמט קלט וגם פורמט יעד
-                            opDict["input_formats"] = new[] {
-                                "DD-MM-yyyy",    // פורמט עם נקודות
-                                "DD/MM/yyyy",    // פורמט עם קוים נטויים
-                                "YYYY-MM-DD",    // פורמט ISO
-                                "YYYY/MM/DD",    // פורמט ISO
-                                "MM/DD/YYYY",    // פורמט אמריקאי
-                                "MM-DD-YYYY"     // פורמט אמריקאי עם מקף
-                            };
-                            opDict["target_format"] = settings.DateValidationSettings.DateFormat; // הפורמט הרצוי
-                            
-                            // מה לעשות עם תאריכים לא תקינים
-                            if (settings.DateValidationSettings.Action == "replace_with_date")
+
+                            if (operation == "validate_date_format" && settings.DateValidationSettings != null)
                             {
-                                opDict["on_fail"] = "replace";
-                                if (settings.DateValidationSettings.ReplacementDate.HasValue)
+                                opDict["action"] = "validate_date";
+                                opDict["field"] = columnName;
+
+                                opDict["input_formats"] = new[] {
+                                    "%d-%m-%Y",
+                                    "%d/%m/%Y",
+                                    "%Y-%m-%d",
+                                    "%Y/%m/%d",
+                                    "%m/%d/%Y",
+                                    "%m-%d-%Y"
+                                };
+                                opDict["target_format"] = settings.DateValidationSettings.DateFormat; 
+
+                                // מה לעשות עם תאריכים לא תקינים
+                                if (settings.DateValidationSettings.Action == "replace_with_date")
                                 {
-                                    opDict["replace_with"] = settings.DateValidationSettings.ReplacementDate.Value.ToString(settings.DateValidationSettings.DateFormat);
+                                    opDict["on_fail"] = "replace";
+                                    if (settings.DateValidationSettings.ReplacementDate.HasValue)
+                                    {
+                                        opDict["replace_with"] = settings.DateValidationSettings.ReplacementDate.Value.ToString(settings.DateValidationSettings.DateFormat);
+                                    }
                                 }
+                                else
+                                {
+                                    opDict["on_fail"] = "drop_row";
+                                }
+
+                                opDict.Remove("column");
                             }
-                            else
-                            {
-                                opDict["on_fail"] = "drop_row";
-                            }
-                            
-                            opDict.Remove("column");
-                        }
-                            
+
                             validationOps.Add(opDict);
                         }
                         else if (operation == "sum" || operation == "average" || operation == "count" ||
@@ -1760,7 +2117,32 @@ namespace PipeWiseClient
 
                 if (globalOperations.Count > 0 || cleaningOps.Count > 0)
                 {
+                    // סדר עדיפויות לפעולות ניקוי (קטנות ← קודם)
+                    var priority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["remove_invalid_dates"] = 10,
+                        ["remove_empty_values"]  = 20,
+                        ["remove_null_values"]   = 30,
+                        ["strip_whitespace"]     = 40,
+                        ["replace_empty_values"] = 50,
+                        ["replace_null_values"]  = 60,
+                        ["remove_invalid_identifier"] = 65,
+                        ["set_numeric_range"]    = 70,
+                        ["remove_duplicates"]    = 80,
+                        ["set_date_format"]      = 90,
+                        // שאר הפעולות יקבלו 100
+                    };
+
+                    cleaningOps = cleaningOps
+                        .OrderBy(op =>
+                        {
+                            var act = (op.TryGetValue("action", out var a) ? a?.ToString() : null) ?? "";
+                            return priority.TryGetValue(act, out var p) ? p : 100;
+                        })
+                        .ToList();
+
                     var allCleaningOps = globalOperations.Concat(cleaningOps).ToList();
+
                     processors.Add(new ProcessorConfig
                     {
                         Type = "cleaner",
@@ -1924,12 +2306,39 @@ namespace PipeWiseClient
 
         #endregion
     }
+    
+    public class DateFormatApplySettings
+    {
+        public string TargetFormat { get; set; } = "%Y-%m-%d";
+        public string? OutputAs { get; set; }
+    }
+
 
     public class ColumnSettings
     {
         public HashSet<string> Operations { get; set; } = new HashSet<string>();
         public string InferredType { get; set; } = string.Empty;
         public DateValidationSettings? DateValidationSettings { get; set; }
+        public ReplaceEmptySettings? ReplaceEmpty { get; set; }
+        public ReplaceEmptySettings? ReplaceNull { get; set; }
+        public NumericRangeSettings? NumericRange { get; set; }
+        public DateFormatApplySettings? DateFormatApply { get; set; }
+        public InvalidDateRemovalSettings? InvalidDateRemoval { get; set; }
+        public IdentifierValidationSettings? IdentifierValidation { get; set; }
+    }
+
+    public class NumericRangeSettings   
+    {
+        public double? Min { get; set; }
+        public double? Max { get; set; }
+        public string ActionOnViolation { get; set; } = "remove";
+        public double? ReplacementValue { get; set; }
+    }
+
+    public class ReplaceEmptySettings
+    {
+        public string? Value { get; set; }
+        public int MaxLength { get; set; } = 255;
     }
 
     public class DateValidationSettings
@@ -1938,6 +2347,55 @@ namespace PipeWiseClient
         public DateTime? ReplacementDate { get; set; }
         public string DateFormat { get; set; } = "dd/MM/yyyy";
     }
+
+    public class InvalidDateRemovalSettings
+    {
+        public int? MinYear { get; set; }
+        public int? MaxYear { get; set; }
+        public string EmptyAction { get; set; } = "remove"; // remove | replace
+        public string? EmptyReplacement { get; set; }
+        public string? MinDateIso { get; set; } 
+        public string? MaxDateIso { get; set; } 
+    }
+
+    public class IdentifierValidationSettings
+    {
+        public string IdType { get; set; } = "numeric"; // numeric | string | uuid
+        public bool TreatWhitespaceAsEmpty { get; set; } = true;
+
+        public string EmptyAction { get; set; } = "remove"; // remove | replace
+        public string? EmptyReplacement { get; set; }
+
+        public NumericIdentifierOptions? Numeric { get; set; }
+        public StringIdentifierOptions?  String  { get; set; }
+        public UuidIdentifierOptions?    Uuid    { get; set; }
+    }
+
+    public class NumericIdentifierOptions
+    {
+        public bool IntegerOnly { get; set; } = true;
+        public bool AllowLeadingZeros { get; set; } = true;
+        public bool AllowNegative { get; set; } = false;
+        public bool AllowThousandSeparators { get; set; } = false;
+        public int? MaxDigits { get; set; } = 20;
+    }
+
+    public class StringIdentifierOptions
+    {
+        public int MinLength { get; set; } = 1;
+        public int? MaxLength { get; set; } = null;
+        public bool DisallowWhitespace { get; set; } = false;
+        public string? Regex { get; set; } = null;
+    }
+
+    public class UuidIdentifierOptions
+    {
+        public bool AcceptHyphenated { get; set; } = true;  // תמיד true בפועל
+        public bool AcceptBraced { get; set; } = false;
+        public bool AcceptUrn { get; set; } = false;
+    }
+
+
     internal static class UIHelpers
     {
         public static void Let<T>(this T? obj, Action<T> act) where T : class

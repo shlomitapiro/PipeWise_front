@@ -1,0 +1,109 @@
+<Window x:Class="PipeWiseClient.Windows.RemoveInvalidIdentifierDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="הסר מזהה לא חוקי" Height="420" Width="600"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#FAFAFA" FlowDirection="RightToLeft">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <TextBlock FontSize="16" FontWeight="SemiBold"
+               Text="הגדרות 'הסר מזהה לא חוקי' לעמודה" />
+
+    <!-- בחירת סוג מזהה -->
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,12,0,0">
+      <TextBlock Text="סוג מזהה צפוי:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <ComboBox x:Name="IdTypeCombo" Width="200" SelectedIndex="0"
+                SelectionChanged="IdTypeCombo_SelectionChanged">
+        <ComboBoxItem Content="מספרי (שלם)" Tag="numeric"/>
+        <ComboBoxItem Content="מחרוזת" Tag="string"/>
+        <ComboBoxItem Content="UUID" Tag="uuid"/>
+      </ComboBox>
+      <CheckBox x:Name="TreatWsAsEmptyBox" Content="התייחס לרווחים כריק" Margin="12,0,0,0" IsChecked="True"/>
+    </StackPanel>
+
+    <!-- פאנלי אפשרויות לפי סוג -->
+    <Grid Grid.Row="2">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <!-- Numeric -->
+      <Border x:Name="NumericPanel" Grid.Row="0" Padding="10" Margin="0,8,0,0"
+              Background="#F8F9FA" BorderBrush="#E9ECEF" BorderThickness="1" CornerRadius="5" Visibility="Visible">
+        <StackPanel>
+          <TextBlock Text="אפשרויות למזהה מספרי" FontWeight="SemiBold"/>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0" VerticalAlignment="Center">
+            <CheckBox x:Name="NumIntegerOnlyBox" Content="שלם בלבד" IsChecked="True" Margin="0,0,12,0"/>
+            <CheckBox x:Name="NumAllowLeadingZerosBox" Content="אפשר אפסים מובילים (000123)" IsChecked="True" Margin="0,0,12,0"/>
+            <CheckBox x:Name="NumAllowNegativeBox" Content="אפשר שלילי (−)" Margin="0,0,12,0"/>
+            <CheckBox x:Name="NumAllowThousandSepBox" Content="אפשר מפרידי אלפים (, .)"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <TextBlock Text="מקס' ספרות:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox x:Name="NumMaxDigitsBox" Width="80" Text="20"/>
+            <TextBlock Text=" (ריק = ללא הגבלה)" Foreground="#666" VerticalAlignment="Center" Margin="6,0,0,0"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- String -->
+      <Border x:Name="StringPanel" Grid.Row="0" Padding="10" Margin="0,8,0,0"
+              Background="#F8F9FA" BorderBrush="#E9ECEF" BorderThickness="1" CornerRadius="5" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Text="אפשרויות למזהה מחרוזת" FontWeight="SemiBold"/>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <TextBlock Text="אורך מינימלי:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox x:Name="StrMinLenBox" Width="80" Text="1" Margin="0,0,12,0"/>
+            <TextBlock Text="אורך מקסימלי:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox x:Name="StrMaxLenBox" Width="80"/>
+            <CheckBox x:Name="StrDisallowWsBox" Content="ללא רווחים" Margin="12,0,0,0"/>
+          </StackPanel>
+          <StackPanel Margin="0,6,0,0">
+            <TextBlock Text="Regex (אופציונלי):" />
+            <TextBox x:Name="StrRegexBox" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- UUID -->
+      <Border x:Name="UuidPanel" Grid.Row="0" Padding="10" Margin="0,8,0,0"
+              Background="#F8F9FA" BorderBrush="#E9ECEF" BorderThickness="1" CornerRadius="5" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Text="אפשרויות למזהה UUID" FontWeight="SemiBold"/>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <CheckBox x:Name="UuidAcceptHyphenBox" Content="עם מקפים (8-4-4-4-12)" IsChecked="True" IsEnabled="False" Margin="0,0,12,0"/>
+            <CheckBox x:Name="UuidAcceptBracedBox" Content="מאפשר סוגריים מסולסלות {}" />
+            <CheckBox x:Name="UuidAcceptUrnBox" Content="מאפשר URN (urn:uuid:…)" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- טיפול בערכים ריקים -->
+      <Border Grid.Row="1" Padding="10" Margin="0,8,0,0"
+              Background="#FFFFFF" BorderBrush="#E9ECEF" BorderThickness="1" CornerRadius="5">
+        <StackPanel>
+          <TextBlock Text="טיפול בערכים ריקים" FontWeight="SemiBold"/>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <RadioButton x:Name="EmptyRemoveRadio" Content="הסר שורה" IsChecked="True" Margin="0,0,18,0"
+                         Checked="EmptyRadio_Checked"/>
+            <RadioButton x:Name="EmptyReplaceRadio" Content="החלף בערך" Checked="EmptyRadio_Checked"/>
+            <TextBox x:Name="EmptyReplacementBox" Width="200" Margin="6,0,0,0" IsEnabled="False"
+                     ToolTip="ערך חלופי חוקי לפי סוג המזהה"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,16,0,0">
+      <Button Content="אישור" Width="90" Margin="0,0,8,0" Click="Ok_Click"/>
+      <Button Content="ביטול" Width="90" Click="Cancel_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>
