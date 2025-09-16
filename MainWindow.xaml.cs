@@ -855,6 +855,8 @@ namespace PipeWiseClient
 
             var transformGroup = CreateOperationGroup("🔄 טרנספורמציה", new[]
             {
+                ("שנה שם עמודה", "rename_field"),
+                ("מזג עמודות", "merge_columns"),
                 ("המר טיפוס", "cast_type"),
                 ("נרמל ערכים מספריים (0-1)", "normalize_numeric")
             }, columnName);
@@ -1061,8 +1063,8 @@ namespace PipeWiseClient
 
                                 s.InvalidDateRemoval.MinYear = dlg.MinYear;
                                 s.InvalidDateRemoval.MaxYear = dlg.MaxYear;
-                                s.InvalidDateRemoval.MinDateIso = dlg.MinDateIso; 
-                                s.InvalidDateRemoval.MaxDateIso = dlg.MaxDateIso; 
+                                s.InvalidDateRemoval.MinDateIso = dlg.MinDateIso;
+                                s.InvalidDateRemoval.MaxDateIso = dlg.MaxDateIso;
                                 s.InvalidDateRemoval.EmptyAction = dlg.EmptyAction;
                                 s.InvalidDateRemoval.EmptyReplacement = dlg.EmptyReplacement;
                             }
@@ -1127,6 +1129,66 @@ namespace PipeWiseClient
                                 settings.NormalizeSettings ??= new NormalizeSettings();
                             }
 
+                            else if (operationName == "rename_field")
+                            {
+                                var allColumns = _columnNames.ToList();
+                                var dialog = new RenameColumnDialog(columnName, allColumns)
+                                {
+                                    Owner = this
+                                };
+
+                                var result = dialog.ShowDialog();
+
+                                if (result != true)
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+
+                                var settings = _columnSettings[columnName];
+                                settings.RenameSettings ??= new RenameSettings();
+                                settings.RenameSettings.NewName = dialog.NewName;
+
+                                AddInfoNotification("שינוי שם עמודה",
+                                    $"העמודה '{columnName}' תשונה ל-'{dialog.NewName}' בעיבוד הנתונים");
+                            }
+
+                            else if (operationName == "merge_columns")
+                            {
+                                var allColumns = _columnNames.ToList();
+                                var dialog = new MergeColumnsDialog(allColumns, columnName)
+                                {
+                                    Owner = this
+                                };
+
+                                var result = dialog.ShowDialog();
+
+                                if (result != true)
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+
+                                // שמור את ההגדרות - הוסף את העמודה הנוכחית לרשימה
+                                var settings = _columnSettings[columnName];
+                                settings.MergeColumnsSettings ??= new MergeColumnsSettings();
+                                
+                                // צור רשימה שמתחילה עם העמודה הנוכחית
+                                var allColumnsToMerge = new List<string> { columnName };
+                                allColumnsToMerge.AddRange(dialog.SelectedColumns);
+                                
+                                settings.MergeColumnsSettings.SourceColumns = allColumnsToMerge;
+                                settings.MergeColumnsSettings.TargetColumn = dialog.TargetColumn;
+                                settings.MergeColumnsSettings.Separator = dialog.Separator;
+                                settings.MergeColumnsSettings.RemoveSourceColumns = dialog.RemoveSourceColumns;
+                                settings.MergeColumnsSettings.EmptyHandling = dialog.EmptyHandling;
+                                settings.MergeColumnsSettings.EmptyReplacement = dialog.EmptyReplacement;
+
+                                var allColumnsText = string.Join(", ", allColumnsToMerge);
+                                AddInfoNotification("מיזוג עמודות",
+                                    $"העמודות [{allColumnsText}] ימוזגו לעמודה '{dialog.TargetColumn}' עם מפריד '{dialog.Separator}'");
+                            }
+
                             _columnSettings[columnName].Operations.Add(operationName);
                         }
                         else
@@ -1182,6 +1244,17 @@ namespace PipeWiseClient
                                 settings.NormalizeSettings = null;
                             }
 
+                            if (operationName == "rename_field")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.RenameSettings = null;
+                            }
+                            
+                            if (operationName == "merge_columns")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.MergeColumnsSettings = null;
+                            }
                         }
                     }
                 }
@@ -2035,15 +2108,52 @@ namespace PipeWiseClient
                         {
                             opDict["field"] = columnName;
                             
-                            // אם הוגדר שדה יעד ספציפי
                             if (settings.NormalizeSettings?.TargetField != null && 
                                 !string.IsNullOrWhiteSpace(settings.NormalizeSettings.TargetField))
                             {
                                 opDict["target_field"] = settings.NormalizeSettings.TargetField;
                             }
-                            // אחרת השרת יוסיף "_normalized" אוטומטית
                         }
 
+                        if (string.Equals(operation, "rename_field", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var s = settings.RenameSettings;
+                            if (s != null && !string.IsNullOrWhiteSpace(s.NewName))
+                            {
+                                opDict["field"] = columnName;
+                                opDict["action"] = "rename_field";
+                                opDict["old_name"] = columnName;
+                                opDict["new_name"] = s.NewName;
+                                
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+
+                        if (string.Equals(operation, "merge_columns", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var s = settings.MergeColumnsSettings;
+                            if (s != null && s.SourceColumns.Count >= 2 && !string.IsNullOrWhiteSpace(s.TargetColumn))
+                            {
+                                opDict["action"] = "merge_columns";
+                                opDict["source_columns"] = s.SourceColumns.ToArray();
+                                opDict["target_column"] = s.TargetColumn;
+                                opDict["separator"] = s.Separator;
+                                opDict["remove_source"] = s.RemoveSourceColumns;
+                                opDict["handle_empty"] = s.EmptyHandling;
+                                
+                                if (!string.IsNullOrWhiteSpace(s.EmptyReplacement))
+                                {
+                                    opDict["empty_replacement"] = s.EmptyReplacement;
+                                }
+                            }
+                            else
+                            {
+                                continue; // דלג על הפעולה אם ההגדרות לא תקינות
+                            }
+                        }
 
                         if (string.Equals(operation, "strip_whitespace", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(operation, "to_uppercase", StringComparison.OrdinalIgnoreCase) ||
@@ -2056,7 +2166,6 @@ namespace PipeWiseClient
                         }
                         else if (!opDict.ContainsKey("field"))
                         {
-                            // רק אם לא קיים field – נשתמש ב-column
                             opDict["column"] = columnName;
                         }
 
@@ -2067,7 +2176,9 @@ namespace PipeWiseClient
                         {
                             cleaningOps.Add(opDict);
                         }
-                        else if (operation.StartsWith("to_") || operation == "cast_type" || operation == "normalize_numeric")
+                        else if (operation.StartsWith("to_") || operation == "cast_type" || 
+                                operation == "normalize_numeric" || operation == "rename_field" ||
+                                operation == "merge_columns") 
                         {
                             transformOps.Add(opDict);
                         }
@@ -2327,6 +2438,8 @@ namespace PipeWiseClient
         public InvalidDateRemovalSettings? InvalidDateRemoval { get; set; }
         public IdentifierValidationSettings? IdentifierValidation { get; set; }
         public NormalizeSettings? NormalizeSettings { get; set; }
+        public RenameSettings? RenameSettings { get; set; }
+        public MergeColumnsSettings? MergeColumnsSettings { get; set; }
     }
 
     public class NumericRangeSettings
@@ -2392,7 +2505,7 @@ namespace PipeWiseClient
 
     public class UuidIdentifierOptions
     {
-        public bool AcceptHyphenated { get; set; } = true;  // תמיד true בפועל
+        public bool AcceptHyphenated { get; set; } = true;
         public bool AcceptBraced { get; set; } = false;
         public bool AcceptUrn { get; set; } = false;
     }
@@ -2402,7 +2515,20 @@ namespace PipeWiseClient
         public string? TargetField { get; set; }
     }
 
+    public class RenameSettings
+    {
+        public string NewName { get; set; } = string.Empty;
+    }
 
+    public class MergeColumnsSettings
+    {
+        public List<string> SourceColumns { get; set; } = new List<string>();
+        public string TargetColumn { get; set; } = string.Empty;
+        public string Separator { get; set; } = " ";
+        public bool RemoveSourceColumns { get; set; } = false;
+        public string EmptyHandling { get; set; } = "skip";
+        public string EmptyReplacement { get; set; } = string.Empty;
+    }
     internal static class UIHelpers
     {
         public static void Let<T>(this T? obj, Action<T> act) where T : class
