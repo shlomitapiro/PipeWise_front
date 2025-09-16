@@ -340,7 +340,7 @@ namespace PipeWiseClient
                 }
                 if (profileResult?.Columns != null)
                 {
-                    var debugInfo = string.Join("\n", profileResult.Columns.Select(c => 
+                    var debugInfo = string.Join("\n", profileResult.Columns.Select(c =>
                         $"{c.Name}: {c.InferredType}"));
                     AddInfoNotification("DEBUG - סוגי עמודות", debugInfo);
                 }
@@ -353,7 +353,7 @@ namespace PipeWiseClient
 
         #endregion
 
-            #region מערכת התראות
+        #region מערכת התראות
 
         public enum NotificationType
         {
@@ -683,7 +683,7 @@ namespace PipeWiseClient
             }
         }
 
-       private async Task LoadFileColumns(string filePath)
+        private async Task LoadFileColumns(string filePath)
         {
             try
             {
@@ -797,7 +797,7 @@ namespace PipeWiseClient
             return targetType switch
             {
                 "json" => "json",
-                "xml"  => "xml",
+                "xml" => "xml",
                 "excel" or "xlsx" => "xlsx",
                 _ => "csv"
             };
@@ -849,26 +849,16 @@ namespace PipeWiseClient
                 ("אמת טווח מספרי",      "set_numeric_range"),
                 ("קבע פורמט תאריך",     "set_date_format"),
                 ("הסר תאריך לא חוקי",   "remove_invalid_dates"),
-                
+
             }, columnName);
             operationsPanel.Children.Add(cleaningGroup);
 
             var transformGroup = CreateOperationGroup("🔄 טרנספורמציה", new[]
             {
-                ("הפוך לאותיות גדולות", "to_uppercase"),
-                ("הפוך לאותיות קטנות", "to_lowercase"),
-                ("המר טיפוס", "cast_type")
+                ("המר טיפוס", "cast_type"),
+                ("נרמל ערכים מספריים (0-1)", "normalize_numeric")
             }, columnName);
             operationsPanel.Children.Add(transformGroup);
-
-            var validationGroup = CreateOperationGroup("✅ אימות", new[]
-            {
-                ("שדה חובה", "required_field"),
-                ("אמת טווח מספרי", "validate_numeric_range"),
-                ("אמת אורך טקסט", "validate_text_length"),
-                ("אמת תקינות תאריכים", "validate_date_format")
-            }, columnName);
-            operationsPanel.Children.Add(validationGroup);
 
             var aggregationGroup = CreateOperationGroup("📊 אגרגציה", new[]
             {
@@ -880,6 +870,15 @@ namespace PipeWiseClient
                 ("קיבוץ לפי", "group_by")
             }, columnName);
             operationsPanel.Children.Add(aggregationGroup);
+
+            var validationGroup = CreateOperationGroup("✅ אימות", new[]
+            {
+                ("שדה חובה", "required_field"),
+                ("אמת טווח מספרי", "validate_numeric_range"),
+                ("אמת אורך טקסט", "validate_text_length"),
+                ("אמת תקינות תאריכים", "validate_date_format")
+            }, columnName);
+            operationsPanel.Children.Add(validationGroup);
 
             stackPanel.Children.Add(operationsPanel);
             border.Child = stackPanel;
@@ -915,20 +914,20 @@ namespace PipeWiseClient
             {
                 if (operationName == "validate_date_format")
                 {
-                    var columnSetting = _columnSettings.ContainsKey(columnName) 
-                        ? _columnSettings[columnName] 
+                    var columnSetting = _columnSettings.ContainsKey(columnName)
+                        ? _columnSettings[columnName]
                         : null;
-                    
+
                     var isDateColumn = columnSetting?.InferredType?.ToLower().Contains("date") == true;
-                    
+
                     // DEBUG
-                    AddInfoNotification("DEBUG - בדיקת עמודת תאריך", 
+                    AddInfoNotification("DEBUG - בדיקת עמודת תאריך",
                         $"עמודה: {columnName}\nסוג: {columnSetting?.InferredType}\nמזוהה כתאריך: {isDateColumn}");
-                    
+
                     if (!isDateColumn)
                         continue; // דלג על הcheckbox הזה אם העמודה לא מסוג תאריך
                 }
-                
+
                 var checkBox = new CheckBox
                 {
                     Content = displayName,
@@ -986,29 +985,6 @@ namespace PipeWiseClient
                                 settings.DateValidationSettings.Action = settingsWindow.Action;
                                 settings.DateValidationSettings.ReplacementDate = settingsWindow.ReplacementDate;
                                 settings.DateValidationSettings.DateFormat = settingsWindow.DateFormat; // הוסף שורה זו
-                            }
-
-                            else if (operationName == "set_numeric_range")
-                            {
-                                var t = (_columnSettings[columnName].InferredType ?? "string").ToLowerInvariant();
-                                bool isNumeric = new[] { "int", "integer", "long", "float", "double", "decimal", "number", "numeric" }
-                                                    .Any(x => t.Contains(x));
-                                if (!isNumeric)
-                                {
-                                    MessageBox.Show(this, "לא ניתן להגדיר טווח על עמודה שאינה מספרית.", "פעולה לא נתמכת", MessageBoxButton.OK, MessageBoxImage.Information);
-                                    checkBox.IsChecked = false;
-                                    return;
-                                }
-                                var dlg = new NumericRangeDialog(columnName) { Owner = this };
-                                var ok = dlg.ShowDialog() == true;
-                                if (!ok) { checkBox.IsChecked = false; return; }
-
-                                var s = _columnSettings[columnName];
-                                s.NumericRange ??= new NumericRangeSettings();
-                                s.NumericRange.Min = dlg.MinValue;
-                                s.NumericRange.Max = dlg.MaxValue;
-                                s.NumericRange.ActionOnViolation = dlg.ActionOnViolation ?? "remove";
-                                s.NumericRange.ReplacementValue = dlg.ReplacementValue;
                             }
 
                             else if (operationName == "replace_empty_values")
@@ -1085,8 +1061,8 @@ namespace PipeWiseClient
 
                                 s.InvalidDateRemoval.MinYear = dlg.MinYear;
                                 s.InvalidDateRemoval.MaxYear = dlg.MaxYear;
-                                s.InvalidDateRemoval.MinDateIso = dlg.MinDateIso;   // NEW
-                                s.InvalidDateRemoval.MaxDateIso = dlg.MaxDateIso;   // NEW
+                                s.InvalidDateRemoval.MinDateIso = dlg.MinDateIso; 
+                                s.InvalidDateRemoval.MaxDateIso = dlg.MaxDateIso; 
                                 s.InvalidDateRemoval.EmptyAction = dlg.EmptyAction;
                                 s.InvalidDateRemoval.EmptyReplacement = dlg.EmptyReplacement;
                             }
@@ -1145,6 +1121,12 @@ namespace PipeWiseClient
                                 }
                             }
 
+                            else if (operationName == "normalize_numeric")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.NormalizeSettings ??= new NormalizeSettings();
+                            }
+
                             _columnSettings[columnName].Operations.Add(operationName);
                         }
                         else
@@ -1187,11 +1169,17 @@ namespace PipeWiseClient
                                 var s = _columnSettings[columnName];
                                 s.InvalidDateRemoval = null;
                             }
-                            
+
                             if (operationName == "remove_invalid_identifier")
                             {
                                 var s = _columnSettings[columnName];
                                 s.IdentifierValidation = null;
+                            }
+
+                            if (operationName == "normalize_numeric")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.NormalizeSettings = null;
                             }
 
                         }
@@ -1919,7 +1907,7 @@ namespace PipeWiseClient
                                 opDict["output_as"] = settings.DateFormatApply.OutputAs!;
                             else if (string.Equals(targetType, "csv", StringComparison.OrdinalIgnoreCase))
                                 opDict["output_as"] = "string";
-                            
+
                             if (!string.IsNullOrWhiteSpace(fmt))
                                 opDict["target_format"] = fmt;
                             else
@@ -1986,7 +1974,7 @@ namespace PipeWiseClient
                             opDict["expected_type"] = string.IsNullOrWhiteSpace(settings.InferredType) ? "string" : settings.InferredType.ToLowerInvariant();
                             opDict["max_length"] = settings.ReplaceNull.MaxLength <= 0 ? 255 : settings.ReplaceNull.MaxLength;
 
-                            opDict["null_definitions"] = new [] { "null", "n/a", "none" };
+                            opDict["null_definitions"] = new[] { "null", "n/a", "none" };
                         }
 
                         if (string.Equals(operation, "remove_invalid_identifier", StringComparison.OrdinalIgnoreCase))
@@ -2043,6 +2031,19 @@ namespace PipeWiseClient
                             }
                         }
 
+                        if (string.Equals(operation, "normalize_numeric", StringComparison.OrdinalIgnoreCase))
+                        {
+                            opDict["field"] = columnName;
+                            
+                            // אם הוגדר שדה יעד ספציפי
+                            if (settings.NormalizeSettings?.TargetField != null && 
+                                !string.IsNullOrWhiteSpace(settings.NormalizeSettings.TargetField))
+                            {
+                                opDict["target_field"] = settings.NormalizeSettings.TargetField;
+                            }
+                            // אחרת השרת יוסיף "_normalized" אוטומטית
+                        }
+
 
                         if (string.Equals(operation, "strip_whitespace", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(operation, "to_uppercase", StringComparison.OrdinalIgnoreCase) ||
@@ -2066,7 +2067,7 @@ namespace PipeWiseClient
                         {
                             cleaningOps.Add(opDict);
                         }
-                        else if (operation.StartsWith("to_") || operation == "cast_type")
+                        else if (operation.StartsWith("to_") || operation == "cast_type" || operation == "normalize_numeric")
                         {
                             transformOps.Add(opDict);
                         }
@@ -2086,7 +2087,7 @@ namespace PipeWiseClient
                                     "%m/%d/%Y",
                                     "%m-%d-%Y"
                                 };
-                                opDict["target_format"] = settings.DateValidationSettings.DateFormat; 
+                                opDict["target_format"] = settings.DateValidationSettings.DateFormat;
 
                                 // מה לעשות עם תאריכים לא תקינים
                                 if (settings.DateValidationSettings.Action == "replace_with_date")
@@ -2121,15 +2122,15 @@ namespace PipeWiseClient
                     var priority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["remove_invalid_dates"] = 10,
-                        ["remove_empty_values"]  = 20,
-                        ["remove_null_values"]   = 30,
-                        ["strip_whitespace"]     = 40,
+                        ["remove_empty_values"] = 20,
+                        ["remove_null_values"] = 30,
+                        ["strip_whitespace"] = 40,
                         ["replace_empty_values"] = 50,
-                        ["replace_null_values"]  = 60,
+                        ["replace_null_values"] = 60,
                         ["remove_invalid_identifier"] = 65,
-                        ["set_numeric_range"]    = 70,
-                        ["remove_duplicates"]    = 80,
-                        ["set_date_format"]      = 90,
+                        ["set_numeric_range"] = 70,
+                        ["remove_duplicates"] = 80,
+                        ["set_date_format"] = 90,
                         // שאר הפעולות יקבלו 100
                     };
 
@@ -2196,10 +2197,10 @@ namespace PipeWiseClient
                 var fileExtension = Path.GetExtension(FilePathTextBox.Text).ToLower();
                 var sourceType = fileExtension switch
                 {
-                    ".csv"  => "csv",
+                    ".csv" => "csv",
                     ".json" => "json",
                     ".xlsx" or ".xls" => "excel",
-                    ".xml"  => "xml",
+                    ".xml" => "xml",
                     _ => "csv"
                 };
 
@@ -2214,11 +2215,11 @@ namespace PipeWiseClient
                 var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
 
                 // הוסף בסוף המתודה BuildPipelineConfig, לפני ה-return:
-                try 
+                try
                 {
                     var debugJson = JsonConvert.SerializeObject(new { processors }, Formatting.Indented);
                     AddInfoNotification("DEBUG - קונפיגורציה נשלחת", debugJson);
-                } 
+                }
                 catch { }
 
                 return new PipelineConfig
@@ -2275,7 +2276,7 @@ namespace PipeWiseClient
                 cfg.Target.Path = defaultPath;
 
             var effectiveType = string.IsNullOrWhiteSpace(cfg.Target.Type) ? selectedTargetType : cfg.Target.Type;
-            var desiredExt   = "." + ExtForTarget(effectiveType.ToLowerInvariant());
+            var desiredExt = "." + ExtForTarget(effectiveType.ToLowerInvariant());
 
             if (!string.IsNullOrWhiteSpace(cfg.Target.Path))
             {
@@ -2306,7 +2307,7 @@ namespace PipeWiseClient
 
         #endregion
     }
-    
+
     public class DateFormatApplySettings
     {
         public string TargetFormat { get; set; } = "%Y-%m-%d";
@@ -2325,9 +2326,10 @@ namespace PipeWiseClient
         public DateFormatApplySettings? DateFormatApply { get; set; }
         public InvalidDateRemovalSettings? InvalidDateRemoval { get; set; }
         public IdentifierValidationSettings? IdentifierValidation { get; set; }
+        public NormalizeSettings? NormalizeSettings { get; set; }
     }
 
-    public class NumericRangeSettings   
+    public class NumericRangeSettings
     {
         public double? Min { get; set; }
         public double? Max { get; set; }
@@ -2354,8 +2356,8 @@ namespace PipeWiseClient
         public int? MaxYear { get; set; }
         public string EmptyAction { get; set; } = "remove"; // remove | replace
         public string? EmptyReplacement { get; set; }
-        public string? MinDateIso { get; set; } 
-        public string? MaxDateIso { get; set; } 
+        public string? MinDateIso { get; set; }
+        public string? MaxDateIso { get; set; }
     }
 
     public class IdentifierValidationSettings
@@ -2367,8 +2369,8 @@ namespace PipeWiseClient
         public string? EmptyReplacement { get; set; }
 
         public NumericIdentifierOptions? Numeric { get; set; }
-        public StringIdentifierOptions?  String  { get; set; }
-        public UuidIdentifierOptions?    Uuid    { get; set; }
+        public StringIdentifierOptions? String { get; set; }
+        public UuidIdentifierOptions? Uuid { get; set; }
     }
 
     public class NumericIdentifierOptions
@@ -2393,6 +2395,11 @@ namespace PipeWiseClient
         public bool AcceptHyphenated { get; set; } = true;  // תמיד true בפועל
         public bool AcceptBraced { get; set; } = false;
         public bool AcceptUrn { get; set; } = false;
+    }
+
+    public class NormalizeSettings
+    {
+        public string? TargetField { get; set; }
     }
 
 
