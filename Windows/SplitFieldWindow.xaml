@@ -1,0 +1,248 @@
+<Window x:Class="PipeWiseClient.Windows.SplitFieldWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="פיצול שדה" Height="500" Width="600"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+
+    <Window.Resources>
+        <!-- סגנונות -->
+        <Style x:Key="ModernButton" TargetType="Button">
+            <Setter Property="Background" Value="#4A90E2"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="5" 
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" 
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#357ABD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CancelButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
+            <Setter Property="Background" Value="#95A5A6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="5" 
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" 
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#7F8C8D"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#2C3E50"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <Style x:Key="SectionPanel" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#E1E5E9"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="15"/>
+            <Setter Property="Margin" Value="0,0,0,15"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="#F8F9FA">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- תוכן ראשי -->
+        <ScrollViewer Grid.Row="0" Margin="20">
+            <StackPanel>
+                <!-- כותרת -->
+                <TextBlock Text="פיצול שדה למספר שדות חדשים" 
+                           FontSize="18" 
+                           FontWeight="Bold" 
+                           Foreground="#2C3E50" 
+                           Margin="0,0,0,20"/>
+
+                <!-- בחירת שדה מקור -->
+                <Border Style="{StaticResource SectionPanel}">
+                    <StackPanel>
+                        <TextBlock Text="שדה מקור:" Style="{StaticResource SectionHeader}"/>
+                        <ComboBox x:Name="SourceFieldComboBox"
+                                  Height="30"
+                                  FontSize="12"/>
+                        <TextBlock Text="בחר את השדה שברצונך לפצל"
+                                   FontSize="10"
+                                   Foreground="#7F8C8D"
+                                   Margin="0,5,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- סוג פיצול -->
+                <Border Style="{StaticResource SectionPanel}">
+                    <StackPanel>
+                        <TextBlock Text="סוג פיצול:" Style="{StaticResource SectionHeader}"/>
+                        
+                        <RadioButton x:Name="DelimiterRadio"
+                                     Content="פיצול לפי תו מפריד"
+                                     GroupName="SplitType"
+                                     IsChecked="True"
+                                     Margin="0,0,0,10"
+                                     Checked="DelimiterRadio_Checked"/>
+                        
+                        <!-- הגדרות delimiter -->
+                        <StackPanel x:Name="DelimiterPanel" Margin="20,0,0,15">
+                            <TextBlock Text="בחר תו מפריד:" FontSize="12" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="DelimiterComboBox"
+                                      Height="30"
+                                      FontSize="12"
+                                      SelectedIndex="0">
+                                <ComboBoxItem Content="פסיק (,)" Tag=","/>
+                                <ComboBoxItem Content="נקודה-פסיק (;)" Tag=";"/>
+                                <ComboBoxItem Content="נקודה (.)" Tag="."/>
+                                <ComboBoxItem Content="קו מחבר (-)" Tag="-"/>
+                                <ComboBoxItem Content="קו תחתון (_)" Tag="_"/>
+                                <ComboBoxItem Content="רווח ( )" Tag=" "/>
+                                <ComboBoxItem Content="נטוי (/)" Tag="/"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <RadioButton x:Name="FixedLengthRadio"
+                                     Content="פיצול לפי מספר תווים קבוע"
+                                     GroupName="SplitType"
+                                     Margin="0,0,0,10"
+                                     Checked="FixedLengthRadio_Checked"/>
+                        
+                        <!-- הגדרות fixed length -->
+                        <StackPanel x:Name="FixedLengthPanel" 
+                                    Margin="20,0,0,0" 
+                                    IsEnabled="False">
+                            <TextBlock Text="מספר תווים בכל חלק:" FontSize="12" Margin="0,0,0,5"/>
+                            <TextBox x:Name="LengthTextBox"
+                                     Height="30"
+                                     Text="3"
+                                     FontSize="12"/>
+                            <TextBlock Text="למשל: 3 = כל 3 תווים יהוו שדה נפרד"
+                                       FontSize="10"
+                                       Foreground="#7F8C8D"
+                                       Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- שדות יעד -->
+                <Border Style="{StaticResource SectionPanel}">
+                    <StackPanel>
+                        <TextBlock Text="שדות יעד:" Style="{StaticResource SectionHeader}"/>
+                        
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- הוראות -->
+                            <TextBlock Grid.Row="0"
+                                       Text="הגדר שמות לשדות החדשים שיווצרו מהפיצול"
+                                       FontSize="10"
+                                       Foreground="#7F8C8D"
+                                       Margin="0,0,0,10"/>
+
+                            <!-- רשימת שדות -->
+                            <ListBox x:Name="TargetFieldsListBox"
+                                     Grid.Row="1"
+                                     Height="120"
+                                     Margin="0,0,0,10"/>
+
+                            <!-- כפתורי ניהול -->
+                            <StackPanel Grid.Row="2" Orientation="Horizontal">
+                                <TextBox x:Name="NewFieldNameTextBox"
+                                         Width="200"
+                                         Height="30"
+                                         Margin="0,0,10,0"
+                                         VerticalContentAlignment="Center"
+                                         Text="שדה_חדש"/>
+                                <Button Content="הוסף שדה"
+                                        Style="{StaticResource ModernButton}"
+                                        Click="AddField_Click"/>
+                                <Button Content="הסר נבחר"
+                                        Style="{StaticResource CancelButton}"
+                                        Margin="10,0,0,0"
+                                        Click="RemoveField_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- אזהרות -->
+                        <TextBlock x:Name="FieldCountWarning"
+                                   Text=""
+                                   FontSize="11"
+                                   Foreground="#E74C3C"
+                                   Margin="0,10,0,0"
+                                   Visibility="Collapsed"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- הגדרות נוספות -->
+                <Border Style="{StaticResource SectionPanel}">
+                    <StackPanel>
+                        <TextBlock Text="הגדרות נוספות:" Style="{StaticResource SectionHeader}"/>
+                        
+                        <CheckBox x:Name="RemoveSourceCheckBox"
+                                  Content="מחק את השדה המקורי לאחר הפיצול"
+                                  IsChecked="True"
+                                  Margin="0,0,0,10"/>
+                        
+                        <TextBlock Text="אם תסמן - השדה המקורי יוחלף בשדות החדשים. אחרת השדות החדשים יתווספו בסוף."
+                                   FontSize="10"
+                                   Foreground="#7F8C8D"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- כפתורי פעולה -->
+        <Border Grid.Row="1"
+                Background="#34495E"
+                CornerRadius="0,0,5,5"
+                Padding="20,15">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="OkButton"
+                        Content="אישור"
+                        Style="{StaticResource ModernButton}"
+                        Click="OkButton_Click"
+                        IsEnabled="False"/>
+                <Button x:Name="CancelButton"
+                        Content="ביטול"
+                        Style="{StaticResource CancelButton}"
+                        Margin="10,0,0,0"
+                        Click="CancelButton_Click"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
