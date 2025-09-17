@@ -1,0 +1,85 @@
+<Window x:Class="PipeWiseClient.Windows.MergeColumnsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="מיזוג עמודות" Height="520" Width="520"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="White" FlowDirection="RightToLeft">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="15"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="10"/>
+            <RowDefinition Height="180"/>
+            <RowDefinition Height="15"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="10"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="10"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="15"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- כותרת -->
+        <TextBlock Grid.Row="0" Text="מיזוג עמודות לעמודה חדשה" 
+                   FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+        <!-- הוראות -->
+        <TextBlock Grid.Row="2" Text="בחר לפחות 2 עמודות למיזוג:"
+                   FontWeight="SemiBold" FontSize="12"/>
+
+        <!-- רשימת עמודות עם CheckBoxes -->
+        <Border Grid.Row="4" BorderBrush="Gray" BorderThickness="1" CornerRadius="4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="ColumnsPanel" Margin="10"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- שם עמודה חדשה -->
+        <StackPanel Grid.Row="6" Orientation="Horizontal">
+            <TextBlock Text="שם עמודה חדשה:" Width="120" VerticalAlignment="Center"/>
+            <TextBox x:Name="TargetColumnBox" Width="300" Height="25" 
+                     VerticalContentAlignment="Center"/>
+        </StackPanel>
+
+        <!-- מפריד -->
+        <StackPanel Grid.Row="8" Orientation="Horizontal">
+            <TextBlock Text="מפריד:" Width="120" VerticalAlignment="Center"/>
+            <ComboBox x:Name="SeparatorCombo" Width="100" Height="25">
+                <ComboBoxItem Content="רווח" Tag=" " IsSelected="True"/>
+                <ComboBoxItem Content="פסיק ורווח" Tag=", "/>
+                <ComboBoxItem Content="מקף" Tag=" - "/>
+                <ComboBoxItem Content="קו תחתון" Tag="_"/>
+                <ComboBoxItem Content="ללא מפריד" Tag=""/>
+            </ComboBox>
+            <TextBox x:Name="CustomSeparatorBox" Width="80" Height="25" 
+                     Margin="10,0,0,0" ToolTip="מפריד מותאם אישית"/>
+        </StackPanel>
+
+        <!-- אפשרויות נוספות -->
+        <StackPanel Grid.Row="10" Orientation="Vertical">
+            <CheckBox x:Name="RemoveSourceBox" Content="מחק עמודות מקור אחרי המיזוג" Margin="0,0,0,5"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="ערכים ריקים:" Width="120" VerticalAlignment="Center"/>
+                <ComboBox x:Name="EmptyHandlingCombo" Width="150" Height="25">
+                    <ComboBoxItem Content="דלג עליהם" Tag="skip" IsSelected="True"/>
+                    <ComboBoxItem Content="כלול כריקים" Tag="keep"/>
+                    <ComboBoxItem Content="החלף בערך" Tag="replace"/>
+                </ComboBox>
+                <TextBox x:Name="EmptyReplacementBox" Width="100" Height="25" 
+                         Margin="10,0,0,0" IsEnabled="False" ToolTip="ערך חלופי לריקים"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- כפתורים -->
+        <StackPanel Grid.Row="12" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button x:Name="OkButton" Content="✓ מזג עמודות" Width="120" Height="35" 
+                    Click="Ok_Click" IsDefault="True" Margin="0,0,15,0" IsEnabled="False"
+                    Background="Green" Foreground="White" FontWeight="Bold"/>
+            <Button Content="✗ ביטול" Width="100" Height="35" 
+                    Click="Cancel_Click" IsCancel="True"
+                    Background="Red" Foreground="White" FontWeight="Bold"/>
+        </StackPanel>
+    </Grid>
+</Window>

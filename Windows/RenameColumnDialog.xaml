@@ -1,0 +1,50 @@
+<Window x:Class="PipeWiseClient.Windows.RenameColumnDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="שנה שם עמודה" Height="250" Width="450"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="White" FlowDirection="RightToLeft">
+    <StackPanel Margin="20">
+        
+        <!-- כותרת -->
+        <TextBlock x:Name="TitleText" FontSize="16" FontWeight="Bold" 
+                   HorizontalAlignment="Center" Margin="0,0,0,20"/>
+
+        <!-- שם נוכחי -->
+        <Grid Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="שם נוכחי:" VerticalAlignment="Center" FontWeight="Bold"/>
+            <TextBox Grid.Column="1" x:Name="OldNameBox" IsReadOnly="True" 
+                     Height="30" Background="LightGray" VerticalContentAlignment="Center"/>
+        </Grid>
+
+        <!-- שם חדש -->
+        <Grid Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="שם חדש:" VerticalAlignment="Center" FontWeight="Bold"/>
+            <TextBox Grid.Column="1" x:Name="NewNameBox" Height="30" 
+                     VerticalContentAlignment="Center" KeyDown="NewNameBox_KeyDown"/>
+        </Grid>
+
+        <!-- הודעת שגיאה -->
+        <TextBlock x:Name="ErrorMessage" Foreground="Red" FontSize="12" 
+                   Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,20"/>
+
+        <!-- כפתורים -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button x:Name="OkButton" Content="✓ אישור" Width="100" Height="35" 
+                    Click="Ok_Click" IsDefault="True" Margin="0,0,15,0"
+                    Background="Green" Foreground="White" FontWeight="Bold"/>
+            <Button Content="✗ ביטול" Width="100" Height="35" 
+                    Click="Cancel_Click" IsCancel="True"
+                    Background="Red" Foreground="White" FontWeight="Bold"/>
+        </StackPanel>
+        
+    </StackPanel>
+</Window>
