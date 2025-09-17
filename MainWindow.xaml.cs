@@ -52,14 +52,6 @@ namespace PipeWiseClient
         // הגדרות לשמירת גדלי אזורים
         private const string SETTINGS_FILE = "ui_settings.json";
 
-        // מבנה הגריד:
-        // Row 0: אזור בחירת קובץ (Auto)
-        // Row 1: ריווח (Auto) 
-        // Row 2: אזור עמודות ופעולות (2* - ניתן לשינוי)
-        // Row 3: כפתורי פעולה (Auto - גודל קבוע)
-        // Row 4: GridSplitter
-        // Row 5: אזור התראות (1* - ניתן לשינוי)
-
         public MainWindow()
         {
             try
@@ -857,6 +849,7 @@ namespace PipeWiseClient
             {
                 ("שנה שם עמודה", "rename_field"),
                 ("מזג עמודות", "merge_columns"),
+                ("פצל שדה", "split_field"),
                 ("המר טיפוס", "cast_type"),
                 ("נרמל ערכים מספריים (0-1)", "normalize_numeric")
             }, columnName);
@@ -1187,6 +1180,38 @@ namespace PipeWiseClient
                                 var allColumnsText = string.Join(", ", allColumnsToMerge);
                                 AddInfoNotification("מיזוג עמודות",
                                     $"העמודות [{allColumnsText}] ימוזגו לעמודה '{dialog.TargetColumn}' עם מפריד '{dialog.Separator}'");
+                            }
+
+                            else if (operationName == "split_field")
+                            {
+                                var allColumns = _columnNames.ToList();
+                                var dialog = new SplitFieldWindow(allColumns)
+                                {
+                                    Owner = this
+                                };
+
+                                var result = dialog.ShowDialog();
+
+                                if (result != true || dialog.Result == null)
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+
+                                var splitConfig = dialog.Result;
+                                var settings = _columnSettings[columnName];
+                                settings.SplitFieldSettings ??= new SplitFieldSettings();
+                                
+                                // העתק את הקונפיגורציה לSettings
+                                settings.SplitFieldSettings.SplitType = splitConfig.SplitType;
+                                settings.SplitFieldSettings.Delimiter = splitConfig.Delimiter;
+                                settings.SplitFieldSettings.Length = splitConfig.Length;
+                                settings.SplitFieldSettings.TargetFields = splitConfig.TargetFields;
+                                settings.SplitFieldSettings.RemoveSource = splitConfig.RemoveSource;
+
+                                var fieldsText = string.Join(", ", splitConfig.TargetFields);
+                                AddInfoNotification("פיצול שדה",
+                                    $"השדה '{columnName}' יפוצל ל-{splitConfig.TargetFields.Count} שדות: {fieldsText}");
                             }
 
                             _columnSettings[columnName].Operations.Add(operationName);
@@ -1585,7 +1610,6 @@ namespace PipeWiseClient
 
             return result;
         }
-
         private async Task ApplyConfigToUI(PipelineConfig cfg)
         {
             _isApplyingConfig = true;
@@ -1671,7 +1695,6 @@ namespace PipeWiseClient
                 }
             }
         }
-
 
         private CheckBox? FindCheckBoxByTag(DependencyObject root, string tag)
         {
@@ -2151,6 +2174,33 @@ namespace PipeWiseClient
                             }
                             else
                             {
+                                continue;
+                            }
+                        }
+
+                        if (string.Equals(operation, "split_field", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var s = settings.SplitFieldSettings;
+                            if (s != null && s.TargetFields.Count > 0)
+                            {
+                                opDict["action"] = "split_field";
+                                opDict["source_field"] = columnName;
+                                opDict["split_type"] = s.SplitType;
+                                
+                                if (s.SplitType == "delimiter")
+                                {
+                                    opDict["delimiter"] = s.Delimiter;
+                                }
+                                else if (s.SplitType == "fixed_length")
+                                {
+                                    opDict["length"] = s.Length;
+                                }
+                                
+                                opDict["target_fields"] = s.TargetFields.ToArray();
+                                opDict["remove_source"] = s.RemoveSource;
+                            }
+                            else
+                            {
                                 continue; // דלג על הפעולה אם ההגדרות לא תקינות
                             }
                         }
@@ -2164,6 +2214,7 @@ namespace PipeWiseClient
                         {
                             opDict["fields"] = new[] { columnName };
                         }
+
                         else if (!opDict.ContainsKey("field"))
                         {
                             opDict["column"] = columnName;
@@ -2176,12 +2227,14 @@ namespace PipeWiseClient
                         {
                             cleaningOps.Add(opDict);
                         }
-                        else if (operation.StartsWith("to_") || operation == "cast_type" || 
+                        
+                        else if (operation.StartsWith("to_") || operation == "cast_type" ||
                                 operation == "normalize_numeric" || operation == "rename_field" ||
-                                operation == "merge_columns") 
+                                operation == "merge_columns" || operation == "split_field")
                         {
                             transformOps.Add(opDict);
                         }
+
                         else if (operation.StartsWith("validate_") || operation == "required_field")
                         {
 
@@ -2200,7 +2253,6 @@ namespace PipeWiseClient
                                 };
                                 opDict["target_format"] = settings.DateValidationSettings.DateFormat;
 
-                                // מה לעשות עם תאריכים לא תקינים
                                 if (settings.DateValidationSettings.Action == "replace_with_date")
                                 {
                                     opDict["on_fail"] = "replace";
@@ -2440,6 +2492,7 @@ namespace PipeWiseClient
         public NormalizeSettings? NormalizeSettings { get; set; }
         public RenameSettings? RenameSettings { get; set; }
         public MergeColumnsSettings? MergeColumnsSettings { get; set; }
+        public SplitFieldSettings? SplitFieldSettings { get; set; }
     }
 
     public class NumericRangeSettings
@@ -2528,6 +2581,15 @@ namespace PipeWiseClient
         public bool RemoveSourceColumns { get; set; } = false;
         public string EmptyHandling { get; set; } = "skip";
         public string EmptyReplacement { get; set; } = string.Empty;
+    }
+
+    public class SplitFieldSettings
+    {
+        public string SplitType { get; set; } = "delimiter";
+        public string Delimiter { get; set; } = ",";
+        public int Length { get; set; } = 3;
+        public List<string> TargetFields { get; set; } = new();
+        public bool RemoveSource { get; set; } = true;
     }
     internal static class UIHelpers
     {
