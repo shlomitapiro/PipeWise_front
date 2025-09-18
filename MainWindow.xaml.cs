@@ -29,8 +29,6 @@ namespace PipeWiseClient
         private readonly ApiClient _api = new();
         private List<string> _columnNames = new List<string>();
         private Dictionary<string, ColumnSettings> _columnSettings = new Dictionary<string, ColumnSettings>();
-        private Dictionary<string, CalculateTotalConfig> _calculateTotalConfigs = new Dictionary<string, CalculateTotalConfig>();
-
         private PipelineConfig? _loadedConfig;
         private const string OUTPUT_DIR = @"C:\Users\shlom\PipeWise\output";
 
@@ -42,7 +40,7 @@ namespace PipeWiseClient
         private bool _isApplyingConfig = false;
 
         private CancellationTokenSource? _runCts;
-
+        
         // ====== ניהול סטייט כללי ל-Enable/Disable כפתורים ======
         private UiPhase _phase = UiPhase.Idle;
         private bool _hasCompatibleConfig = false;
@@ -819,7 +817,6 @@ namespace PipeWiseClient
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-
             headerPanel.Children.Add(headerText);
             Grid.SetColumn(headerText, 0);
 
@@ -859,12 +856,9 @@ namespace PipeWiseClient
             var aggregationGroup = CreateOperationGroup("📊 אגרגציה", new[]
             {
                 ("סכום", "sum"),
-                ("סכום משדות מרובים", "calculate_total"),
                 ("ממוצע", "average"),
-                ("ספירה", "count"),
                 ("מינימום", "min"),
                 ("מקסימום", "max"),
-                ("קיבוץ לפי", "group_by")
             }, columnName);
             operationsPanel.Children.Add(aggregationGroup);
 
@@ -1227,33 +1221,6 @@ namespace PipeWiseClient
                                 }
                             }
 
-                            else if (operationName == "calculate_total")
-                            {
-                                var dialog = new CalculateTotalDialog(_loadedColumns)
-                                {
-                                    Owner = this,
-                                    WindowStartupLocation = WindowStartupLocation.CenterOwner
-                                };
-
-                                if (dialog.ShowDialog() == true)
-                                {
-                                    // שמור את התצורה
-                                    _calculateTotalConfigs[columnName] = new CalculateTotalConfig
-                                    {
-                                        SelectedFields = dialog.SelectedFields,
-                                        TargetFieldName = dialog.TargetFieldName
-                                    };
-
-                                    AddSuccessNotification("הוגדר סכום משדות מרובים",
-                                        $"שדות: {string.Join(", ", dialog.SelectedFields)}\nשדה חדש: {dialog.TargetFieldName}");
-                                }
-                                else
-                                {
-                                    // בוטל - בטל את הסימון
-                                    checkBox.IsChecked = false;
-                                }
-                            }
-
                             _columnSettings[columnName].Operations.Add(operationName);
                         }
                         else
@@ -1331,12 +1298,6 @@ namespace PipeWiseClient
                             {
                                 var settings = _columnSettings[columnName];
                                 settings.CategoricalEncoding = null;
-                            }
-                            
-                            if (operationName == "calculate_total")
-                            {
-                                _calculateTotalConfigs.Remove(columnName);
-                                AddInfoNotification("בוטל סכום משדות מרובים", $"עבור עמודה: {columnName}");
                             }
                         }
                     }
@@ -2356,8 +2317,8 @@ namespace PipeWiseClient
 
                             validationOps.Add(opDict);
                         }
-                        else if (operation == "sum" || operation == "average" || operation == "count" ||
-                                operation == "min" || operation == "max" || operation == "group_by")
+                        else if (operation == "sum" || operation == "average" ||
+                                operation == "min" || operation == "max")
                         {
                             aggregationOps.Add(opDict);
                         }
@@ -2419,17 +2380,6 @@ namespace PipeWiseClient
 
                 if (aggregationOps.Count > 0)
                 {
-                    // הוסף פעולות calculate_total
-                    foreach (var config in _calculateTotalConfigs.Values)
-                    {
-                        aggregationOps.Add(new Dictionary<string, object>
-                        {
-                            ["action"] = "calculate_total",
-                            ["fields"] = config.SelectedFields.ToArray(),
-                            ["total_field"] = config.TargetFieldName
-                        });
-                    }
-
                     processors.Add(new ProcessorConfig
                     {
                         Type = "aggregator",
@@ -2612,11 +2562,6 @@ namespace PipeWiseClient
             }
         }
 
-        private void ClearCalculateTotalConfigs()
-        {
-            _calculateTotalConfigs.Clear();
-        }
-
         #endregion
     }
 
@@ -2751,13 +2696,6 @@ namespace PipeWiseClient
         public bool DeleteOriginal { get; set; } = false;
         public int DefaultValue { get; set; } = -1;
     }
-
-    public class CalculateTotalConfig
-    {
-        public List<string> SelectedFields { get; set; } = new List<string>();
-        public string TargetFieldName { get; set; } = "total";
-    }
-
 
     internal static class UIHelpers
     {
