@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -11,6 +12,21 @@ using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Services
 {
+    /// <summary>
+    /// תוצאת סריקת שדה לערכים ייחודיים
+    /// </summary>
+    public class ScanFieldResult // ✅ זה יכול להיות מחוץ למחלקה
+    {
+        public string FieldName { get; set; } = string.Empty;
+        public List<string> UniqueValues { get; set; } = new();
+        public int TotalRows { get; set; }
+        public int NullCount { get; set; }
+        public bool FieldExists { get; set; }
+        public bool Truncated { get; set; }
+        public List<string> AvailableFields { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
+    }
+
     public class ApiClient : IDisposable
     {
         private readonly HttpClient _http;
@@ -25,6 +41,92 @@ namespace PipeWiseClient.Services
 
         public void Dispose() => _http.Dispose();
 
+        /// <summary>
+        /// סריקת שדה בקובץ למציאת ערכים ייחודיים
+        /// משמש לקידוד קטגוריאלי
+        /// </summary>
+        public async Task<ScanFieldResult> ScanFieldValuesAsync( 
+            string filePath,
+            string fieldName,
+            int maxUniqueValues = 100,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"ScanFieldValuesAsync called:");
+                System.Diagnostics.Debug.WriteLine($"  filePath: '{filePath}'");
+                System.Diagnostics.Debug.WriteLine($"  fieldName: '{fieldName}'");
+                System.Diagnostics.Debug.WriteLine($"  File exists: {File.Exists(filePath)}");
+
+                if (!File.Exists(filePath))
+                {
+                    throw new FileNotFoundException($"File not found: {filePath}");
+                }
+
+                using var form = new MultipartFormDataContent();
+
+                // הוסף את הקובץ
+                var fileBytes = await File.ReadAllBytesAsync(filePath, ct);
+                var fileContent = new ByteArrayContent(fileBytes);
+
+                // הגדרת Content-Type לפי סוג הקובץ
+                var extension = Path.GetExtension(filePath).ToLower();
+                var contentType = extension switch
+                {
+                    ".csv" => "text/csv",
+                    ".json" => "application/json",
+                    ".xml" => "application/xml",
+                    ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ".xls" => "application/vnd.ms-excel",
+                    _ => "application/octet-stream"
+                };
+
+                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+                form.Add(fileContent, "file", Path.GetFileName(filePath));
+
+                // הוסף פרמטרים נוספים
+                form.Add(new StringContent(fieldName), "field_name");
+                form.Add(new StringContent(maxUniqueValues.ToString()), "max_unique_values");
+
+                System.Diagnostics.Debug.WriteLine($"Sending request to /scan-field with file: {Path.GetFileName(filePath)}, field: {fieldName}");
+
+                // שליחת הבקשה
+                var response = await _http.PostAsync("/scan-field", form, ct);
+                var content = await response.Content.ReadAsStringAsync(ct);
+
+                System.Diagnostics.Debug.WriteLine($"Server response status: {response.StatusCode}");
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Server response content: {content}");
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new HttpRequestException($"API Error: {response.StatusCode} - {content}");
+                }
+
+                var result = System.Text.Json.JsonSerializer.Deserialize<ScanFieldResult>(content,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true,
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+
+                return result ?? new ScanFieldResult
+                {
+                    FieldExists = false,
+                    Message = "Failed to parse server response"
+                };
+            }
+            catch (HttpRequestException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error scanning field values: {ex.Message}", ex);
+            }
+        }
 
         // ------------------ Jobs API (Start → Progress → Result) ------------------
         public async Task<RunStartResponse> StartRunAsync(object pipelineConfig, CancellationToken ct = default)
@@ -49,7 +151,6 @@ namespace PipeWiseClient.Services
             return await _http.GetFromJsonAsync<RunResultEnvelope>($"runs/{runId}/result", ct);
         }
 
-
         // ------------------ Reports ------------------
 
         public async Task<List<ReportInfo>> GetReportsListAsync(int limit = 50, CancellationToken ct = default)
@@ -71,13 +172,12 @@ namespace PipeWiseClient.Services
         public async Task<byte[]> DownloadReportFileAsync(string reportId, string fileType, CancellationToken ct = default)
         {
             var res = await _http.GetAsync($"reports/{reportId}/download?file_type={fileType}", ct);
-            if (!res.IsSuccessStatusCode) return Array.Empty<byte>(); // ↓ לא מחזירים null
+            if (!res.IsSuccessStatusCode) return Array.Empty<byte>();
             return await res.Content.ReadAsByteArrayAsync(ct);
         }
 
         public async Task<CleanupResult?> CleanupOldReportsAsync(int maxReports = 100, int maxAgeDays = 30, CancellationToken ct = default)
         {
-            // ↓ StringContent עם קידוד וסוג תוכן – אין null-encoding
             using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
             var res = await _http.PostAsync($"reports/cleanup?max_reports={maxReports}&max_age_days={maxAgeDays}", content, ct);
 
@@ -99,7 +199,6 @@ namespace PipeWiseClient.Services
             return true;
         }
 
-
         // ------------------ Pipelines (saved) ------------------
 
         public async Task<PipelinesListResponse> ListPipelinesAsync(string? q = null, int limit = 100, CancellationToken ct = default)
@@ -119,8 +218,6 @@ namespace PipeWiseClient.Services
             string? description = null,
             CancellationToken ct = default)
         {
-            // אם ניתן שם/תיאור – נשלב אותם יחד עם השדות הראשיים שהשרת מצפה להם
-            // payload ברמת-שורש: { name, description, source, processors, target }
             HttpContent payload;
 
             if (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(description))
@@ -137,13 +234,11 @@ namespace PipeWiseClient.Services
             }
             else
             {
-                // תאימות: כפי שהיה קודם – שליחת האובייקט עצמו
                 payload = JsonContent.Create(config);
             }
 
             var res = await _http.PostAsync("pipelines", payload, ct);
 
-            // אם מסיבה כלשהי השרת לא מקבל פורמט עם name/description – fallback לפורמט הישן
             if (!res.IsSuccessStatusCode && (name != null || description != null))
             {
                 var fallback = await _http.PostAsync("pipelines", JsonContent.Create(config), ct);
@@ -158,7 +253,6 @@ namespace PipeWiseClient.Services
             if (pr == null) throw new InvalidOperationException("Empty response from server.");
             return pr;
         }
-
 
         public async Task<PipelineResponse> UpdatePipelineAsync(string id, PipelineConfig config, CancellationToken ct = default)
         {
@@ -209,7 +303,6 @@ namespace PipeWiseClient.Services
                 addedAny = true;
             }
 
-            // ✅ אם אין חלקים — הוסף no-op כדי לרצות את ה-parser של multipart
             if (!addedAny)
                 form.Add(new StringContent("1"), "noop");
 
@@ -240,7 +333,7 @@ namespace PipeWiseClient.Services
                     if (pr.Status == "completed" || pr.Status == "failed")
                         break;
                 }
-                catch (HttpRequestException) { /* רשת זמנית — ננסה שוב */ }
+                catch (HttpRequestException) { }
                 await Task.Delay(interval, ct);
             }
 
@@ -248,65 +341,69 @@ namespace PipeWiseClient.Services
                 ?? throw new InvalidOperationException("Missing run result.");
             if (string.Equals(final.Status, "failed", StringComparison.OrdinalIgnoreCase))
             {
-                var err = final.Result?.message; // או .Message אם זה PascalCase אצלך
+                var err = final.Result?.message;
                 throw new InvalidOperationException(!string.IsNullOrWhiteSpace(err) ? err : "Run failed.");
             }
 
             return final.Result ?? new RunPipelineResult();
         }
 
-
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
-        // שימוש מה- MainWindow כשמריצים עם קובץ+קונפיג שלא נשמרו במאגר
-        public async Task<RunPipelineResult> RunAdHocPipelineAsync(
-            string filePath, 
-            PipelineConfig config, 
-            RunReportSettings? report = null, 
+        public async Task<RunPipelineResult> RunAdHocPipelineAsync( // ✅ רק מתודה אחת!
+            string filePath,
+            PipelineConfig config,
+            RunReportSettings? report = null,
             CancellationToken ct = default)
         {
             using var form = new MultipartFormDataContent();
-            
-            // הוסף את הקובץ עם Content-Type נכון
+
             var fileBytes = await File.ReadAllBytesAsync(filePath, ct);
             var fileContent = new ByteArrayContent(fileBytes);
-            
-            // הגדרת Content-Type לפי סוג הקובץ
+
             var extension = Path.GetExtension(filePath).ToLower();
             var contentType = extension switch
             {
                 ".csv" => "text/csv",
-                ".json" => "application/json", 
+                ".json" => "application/json",
                 ".xml" => "application/xml",
                 ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 ".xls" => "application/vnd.ms-excel",
                 _ => "application/octet-stream"
             };
-            
+
             fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
             form.Add(fileContent, "file", Path.GetFileName(filePath));
-            
-            // הוסף קונפיג - השתמש ב-System.Text.Json במקום Newtonsoft
-            var configJson = System.Text.Json.JsonSerializer.Serialize(config);
+
+            var configJson = System.Text.Json.JsonSerializer.Serialize(config, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                WriteIndented = false,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            });
             form.Add(new StringContent(configJson), "config");
-            
+
             if (report != null)
             {
                 var reportJson = System.Text.Json.JsonSerializer.Serialize(report);
                 form.Add(new StringContent(reportJson), "report_settings");
             }
 
-            // שימוש ב-_http במקום _client
             var response = await _http.PostAsync("/run-pipeline", form, ct);
             var content = await response.Content.ReadAsStringAsync(ct);
-            
+
             if (!response.IsSuccessStatusCode)
             {
                 throw new HttpRequestException($"API Error: {response.StatusCode} - {content}");
             }
-            
-            return System.Text.Json.JsonSerializer.Deserialize<RunPipelineResult>(content) 
-                ?? throw new InvalidOperationException("Invalid response");
+
+            return System.Text.Json.JsonSerializer.Deserialize<RunPipelineResult>(content,
+                 new JsonSerializerOptions
+                 {
+                     PropertyNameCaseInsensitive = true,
+                     PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                }) ?? new RunPipelineResult { message = "Failed to parse response" };
         }
+
         public async Task<ReportInfo?> GetReportDetailsAsync(string reportId, CancellationToken ct = default)
         {
             var res = await _http.GetAsync($"reports/{reportId}", ct);
@@ -334,17 +431,14 @@ namespace PipeWiseClient.Services
             }
             catch (HttpRequestException ex)
             {
-                // רשת או שגיאת שרת
                 throw new InvalidOperationException($"Failed to get supported sources: {ex.Message}", ex);
             }
             catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
             {
-                // timeout
                 throw new InvalidOperationException("Request timed out while getting supported sources", ex);
             }
             catch (Exception ex)
             {
-                // שגיאה כללית
                 throw new InvalidOperationException($"Unexpected error getting supported sources: {ex.Message}", ex);
             }
         }
@@ -358,17 +452,14 @@ namespace PipeWiseClient.Services
             }
             catch (HttpRequestException ex)
             {
-                // רשת או שגיאת שרת
                 throw new InvalidOperationException($"Failed to get available processors: {ex.Message}", ex);
             }
             catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
             {
-                // timeout
                 throw new InvalidOperationException("Request timed out while getting processors", ex);
             }
             catch (Exception ex)
             {
-                // שגיאה כללית
                 throw new InvalidOperationException($"Unexpected error getting processors: {ex.Message}", ex);
             }
         }
@@ -380,23 +471,20 @@ namespace PipeWiseClient.Services
                 using var content = JsonContent.Create(payload);
                 var response = await _http.PostAsync("columns/profile", content, ct);
                 response.EnsureSuccessStatusCode();
-                
+
                 var result = await response.Content.ReadFromJsonAsync<ColumnProfileResponse>(cancellationToken: ct);
                 return result;
             }
             catch (HttpRequestException ex)
             {
-                // רשת או שגיאת שרת
                 throw new InvalidOperationException($"Failed to profile columns: {ex.Message}", ex);
             }
             catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
             {
-                // timeout
                 throw new InvalidOperationException("Request timed out while profiling columns", ex);
             }
             catch (Exception ex)
             {
-                // שגיאה כללית
                 throw new InvalidOperationException($"Unexpected error profiling columns: {ex.Message}", ex);
             }
         }

@@ -851,7 +851,8 @@ namespace PipeWiseClient
                 ("מזג עמודות", "merge_columns"),
                 ("פצל שדה", "split_field"),
                 ("המר טיפוס", "cast_type"),
-                ("נרמל ערכים מספריים (0-1)", "normalize_numeric")
+                ("נרמל ערכים מספריים (0-1)", "normalize_numeric"),
+                ("קידוד קטגוריאלי", "categorical_encoding")
             }, columnName);
             operationsPanel.Children.Add(transformGroup);
 
@@ -1165,11 +1166,11 @@ namespace PipeWiseClient
                                 // שמור את ההגדרות - הוסף את העמודה הנוכחית לרשימה
                                 var settings = _columnSettings[columnName];
                                 settings.MergeColumnsSettings ??= new MergeColumnsSettings();
-                                
+
                                 // צור רשימה שמתחילה עם העמודה הנוכחית
                                 var allColumnsToMerge = new List<string> { columnName };
                                 allColumnsToMerge.AddRange(dialog.SelectedColumns);
-                                
+
                                 settings.MergeColumnsSettings.SourceColumns = allColumnsToMerge;
                                 settings.MergeColumnsSettings.TargetColumn = dialog.TargetColumn;
                                 settings.MergeColumnsSettings.Separator = dialog.Separator;
@@ -1201,7 +1202,7 @@ namespace PipeWiseClient
                                 var splitConfig = dialog.Result;
                                 var settings = _columnSettings[columnName];
                                 settings.SplitFieldSettings ??= new SplitFieldSettings();
-                                
+
                                 // העתק את הקונפיגורציה לSettings
                                 settings.SplitFieldSettings.SplitType = splitConfig.SplitType;
                                 settings.SplitFieldSettings.Delimiter = splitConfig.Delimiter;
@@ -1212,6 +1213,17 @@ namespace PipeWiseClient
                                 var fieldsText = string.Join(", ", splitConfig.TargetFields);
                                 AddInfoNotification("פיצול שדה",
                                     $"השדה '{columnName}' יפוצל ל-{splitConfig.TargetFields.Count} שדות: {fieldsText}");
+                            }
+
+                            else if (operationName == "categorical_encoding")
+                            {
+                                OpenCategoricalEncodingWindow(columnName);
+
+                                if (_columnSettings[columnName].CategoricalEncoding == null)
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
                             }
 
                             _columnSettings[columnName].Operations.Add(operationName);
@@ -1274,11 +1286,23 @@ namespace PipeWiseClient
                                 var settings = _columnSettings[columnName];
                                 settings.RenameSettings = null;
                             }
-                            
+
                             if (operationName == "merge_columns")
                             {
                                 var settings = _columnSettings[columnName];
                                 settings.MergeColumnsSettings = null;
+                            }
+
+                            if (operationName == "split_field")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.SplitFieldSettings = null;
+                            }
+
+                            if (operationName == "categorical_encoding")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.CategoricalEncoding = null;
                             }
                         }
                     }
@@ -2130,8 +2154,8 @@ namespace PipeWiseClient
                         if (string.Equals(operation, "normalize_numeric", StringComparison.OrdinalIgnoreCase))
                         {
                             opDict["field"] = columnName;
-                            
-                            if (settings.NormalizeSettings?.TargetField != null && 
+
+                            if (settings.NormalizeSettings?.TargetField != null &&
                                 !string.IsNullOrWhiteSpace(settings.NormalizeSettings.TargetField))
                             {
                                 opDict["target_field"] = settings.NormalizeSettings.TargetField;
@@ -2147,7 +2171,7 @@ namespace PipeWiseClient
                                 opDict["action"] = "rename_field";
                                 opDict["old_name"] = columnName;
                                 opDict["new_name"] = s.NewName;
-                                
+
                             }
                             else
                             {
@@ -2166,7 +2190,7 @@ namespace PipeWiseClient
                                 opDict["separator"] = s.Separator;
                                 opDict["remove_source"] = s.RemoveSourceColumns;
                                 opDict["handle_empty"] = s.EmptyHandling;
-                                
+
                                 if (!string.IsNullOrWhiteSpace(s.EmptyReplacement))
                                 {
                                     opDict["empty_replacement"] = s.EmptyReplacement;
@@ -2186,7 +2210,7 @@ namespace PipeWiseClient
                                 opDict["action"] = "split_field";
                                 opDict["source_field"] = columnName;
                                 opDict["split_type"] = s.SplitType;
-                                
+
                                 if (s.SplitType == "delimiter")
                                 {
                                     opDict["delimiter"] = s.Delimiter;
@@ -2195,13 +2219,40 @@ namespace PipeWiseClient
                                 {
                                     opDict["length"] = s.Length;
                                 }
-                                
+
                                 opDict["target_fields"] = s.TargetFields.ToArray();
                                 opDict["remove_source"] = s.RemoveSource;
                             }
                             else
                             {
                                 continue; // דלג על הפעולה אם ההגדרות לא תקינות
+                            }
+                        }
+
+                        if (string.Equals(operation, "categorical_encoding", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var config = settings.CategoricalEncoding;
+                            if (config != null && config.Mapping.Count > 0)
+                            {
+                                opDict["action"] = "categorical_encoding";
+                                opDict["field"] = columnName;
+                                opDict["mapping"] = config.Mapping;
+                                opDict["replace_original"] = config.ReplaceOriginal;
+                                opDict["delete_original"] = config.DeleteOriginal;
+                                opDict["default_value"] = config.DefaultValue;
+
+                                if (!config.ReplaceOriginal && !string.IsNullOrEmpty(config.TargetField))
+                                {
+                                    opDict["target_field"] = config.TargetField;
+                                }
+
+                                transformOps.Add(opDict);
+                                continue; // המשך ללולאה הבאה
+                            }
+                            else
+                            {
+                                // אם אין קונפיגורציה תקינה, דלג על הפעולה
+                                continue;
                             }
                         }
 
@@ -2227,7 +2278,7 @@ namespace PipeWiseClient
                         {
                             cleaningOps.Add(opDict);
                         }
-                        
+
                         else if (operation.StartsWith("to_") || operation == "cast_type" ||
                                 operation == "normalize_numeric" || operation == "rename_field" ||
                                 operation == "merge_columns" || operation == "split_field")
@@ -2467,6 +2518,54 @@ namespace PipeWiseClient
                 return false;
             }
         }
+        
+        private async Task OpenCategoricalEncodingWindow(string fieldName)
+        {
+            try
+            {
+                var filePath = FilePathTextBox.Text?.Trim();
+                if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                {
+                    AddWarningNotification("קובץ חסר", 
+                        "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
+                    return;
+                }
+
+                // יצירת חלון קידוד קטגוריאלי
+                var encodingWindow = new CategoricalEncodingWindow(_api, filePath, fieldName)
+                {
+                    Owner = this
+                };
+
+                if (encodingWindow.ShowDialog() == true && encodingWindow.Result != null)
+                {
+                   var winCfg = encodingWindow.Result; // PipeWiseClient.Windows.CategoricalEncodingConfig
+
+                   // Map Windows.CategoricalEncodingConfig -> PipeWiseClient.CategoricalEncodingConfig
+                   var mapped = new CategoricalEncodingConfig
+                   {
+                       Field = winCfg.Field,
+                       Mapping = new Dictionary<string, int>(winCfg.Mapping),
+                       TargetField = winCfg.TargetField,
+                       ReplaceOriginal = winCfg.ReplaceOriginal,
+                       DeleteOriginal = winCfg.DeleteOriginal,
+                       DefaultValue = winCfg.DefaultValue
+                   };
+
+                   // Save mapped config into column settings
+                   var settings = _columnSettings[fieldName];
+                   settings.CategoricalEncoding = mapped;
+
+                   AddSuccessNotification("קידוד קטגוריאלי",
+                       $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
+               }
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאה בקידוד קטגוריאלי", 
+                    "לא ניתן לפתוח חלון קידוד קטגוריאלי", ex.Message);
+            }
+        }
 
         #endregion
     }
@@ -2493,6 +2592,7 @@ namespace PipeWiseClient
         public RenameSettings? RenameSettings { get; set; }
         public MergeColumnsSettings? MergeColumnsSettings { get; set; }
         public SplitFieldSettings? SplitFieldSettings { get; set; }
+        public CategoricalEncodingConfig? CategoricalEncoding { get; set; }
     }
 
     public class NumericRangeSettings
@@ -2591,6 +2691,17 @@ namespace PipeWiseClient
         public List<string> TargetFields { get; set; } = new();
         public bool RemoveSource { get; set; } = true;
     }
+
+    public class CategoricalEncodingConfig
+    {
+        public string Field { get; set; } = string.Empty;
+        public Dictionary<string, int> Mapping { get; set; } = new();
+        public string? TargetField { get; set; }
+        public bool ReplaceOriginal { get; set; } = true;
+        public bool DeleteOriginal { get; set; } = false;
+        public int DefaultValue { get; set; } = -1;
+    }
+
     internal static class UIHelpers
     {
         public static void Let<T>(this T? obj, Action<T> act) where T : class
