@@ -1,5 +1,6 @@
 // Models/PipelineModels.cs
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace PipeWiseClient.Models
 {
@@ -44,7 +45,11 @@ namespace PipeWiseClient.Models
         public string? progress_file { get; set; }
         public object? config_echo { get; set; }
         public string? error { get; set; }
-        
+
+        [JsonProperty("output_validation")] 
+        [System.Text.Json.Serialization.JsonPropertyName("output_validation")]
+        public OutputValidation? OutputValidation { get; set; }
+
         [System.Text.Json.Serialization.JsonPropertyName("target_path")]
         public string? TargetPath { get; set; }
 

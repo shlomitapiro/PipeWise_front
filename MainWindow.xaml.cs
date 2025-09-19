@@ -571,6 +571,245 @@ namespace PipeWiseClient
             SystemStatusText.Text = $"{icon} {status}";
         }
 
+        // הוספת בדיקות איכות נתונים חכמות
+        private void HandleSmartValidationResults(RunPipelineResult? result)
+        {
+            try
+            {
+                var ov = result?.OutputValidation;
+                if (ov == null)
+                {
+                    AddInfoNotification("אימות פלט", "לא התקבל output_validation מהשרת");
+                    return;
+                }
+
+                // ===== תקציר עליון =====
+                bool? passed = TryGetBool(ov, "passed");
+                var summary = new StringBuilder();
+                summary.AppendLine($"סטטוס כללי: {(passed == true ? "עבר ✓" : passed == false ? "נכשל ✗" : "לא ידוע")}");
+
+                // Commit / יעד פלט / דוחות (אם יש)
+                var sumObj = GetPropertyValue(result, "Summary") ?? GetPropertyValue(result, "summary");
+                if (sumObj != null)
+                {
+                    var committed = TryGetBool(sumObj, "committed");
+                    var outPath = GetPropertyValue(sumObj, "final_target_path")?.ToString() ??
+                                GetPropertyValue(result, "TargetPath")?.ToString();
+                    if (committed != null)
+                        summary.AppendLine($"מצב Commit: {(committed == true ? "בוצע" : "לא בוצע")}");
+                    if (!string.IsNullOrWhiteSpace(outPath))
+                        summary.AppendLine($"פלט: {outPath}");
+                }
+                var rp = GetPropertyValue(result, "ReportPaths") ?? GetPropertyValue(result, "report_paths");
+                if (rp != null)
+                {
+                    var html = GetPropertyValue(rp, "html_path")?.ToString();
+                    var pdf  = GetPropertyValue(rp, "pdf_path")?.ToString();
+                    if (!string.IsNullOrWhiteSpace(html) || !string.IsNullOrWhiteSpace(pdf))
+                        summary.AppendLine($"דוח: {(string.IsNullOrWhiteSpace(html) ? "" : "HTML ")}{(string.IsNullOrWhiteSpace(pdf) ? "" : "PDF")}".Trim());
+                }
+
+                // ===== איסוף תוצאות אימות חכם =====
+                var smart = GetPropertyValue(ov, "smart_validation");
+                var warnings = new List<string>();
+                var errors   = new List<string>();
+                var infos    = new List<string>();
+
+                if (smart != null)
+                {
+                    if (GetPropertyValue(smart, "warnings") is IEnumerable<object> warnsEnum)
+                    {
+                        foreach (var w in warnsEnum)
+                        {
+                            var msg = (GetPropertyValue(w, "message")?.ToString() ?? "אזהרה בבדיקת נתונים").Trim();
+                            if (!string.IsNullOrWhiteSpace(msg)) warnings.Add(msg);
+                        }
+                    }
+
+                    if (GetPropertyValue(smart, "issues") is IEnumerable<object> issuesEnum)
+                    {
+                        foreach (var it in issuesEnum)
+                        {
+                            var msg = (GetPropertyValue(it, "message")?.ToString() ?? "בעיה בבדיקת נתונים").Trim();
+                            var sev = (GetPropertyValue(it, "severity")?.ToString() ?? "").ToLowerInvariant();
+                            if (string.IsNullOrWhiteSpace(msg)) continue;
+
+                            switch (sev)
+                            {
+                                case "error":   errors.Add(msg); break;
+                                case "warning": warnings.Add(msg); break;
+                                default:        infos.Add(msg); break;
+                            }
+                        }
+                    }
+
+                    summary.AppendLine($"אימות חכם: {errors.Count} שגיאות, {warnings.Count} אזהרות, {infos.Count} מידע");
+                }
+                else
+                {
+                    summary.AppendLine("אימות חכם: לא הופעל (כנראה הפייפליין לא כולל smart_validation).");
+                }
+
+                // ===== הרכבת פירוט חכם (מציגים רק מקטעים שאינם ריקים) =====
+                var details = new StringBuilder();
+                var rules = GetPropertyValue(ov, "rules");
+                if (rules != null)
+                {
+                    // מציג רק אם יש מה להראות
+                    if (rules is IEnumerable<object> rulesList && rulesList.Any())
+                    {
+                        details.AppendLine("— חוקים שבוצעו —");
+                        int i = 1;
+                        foreach (var r in rulesList.Take(20))
+                            details.AppendLine($"{i++}. {_SafeToString(r)}");
+                        if (rulesList.Count() > 20)
+                            details.AppendLine($"… ועוד {rulesList.Count() - 20} נוספים");
+                        details.AppendLine();
+                    }
+                }
+
+                void AppendSection(string title, List<string> items, int limit = 20)
+                {
+                    if (items == null || items.Count == 0) return;
+                    details.AppendLine($"— {title} ({items.Count}) —");
+                    int i = 1;
+                    foreach (var s in items.Take(limit))
+                        details.AppendLine($"{i++}. {s}");
+                    if (items.Count > limit)
+                        details.AppendLine($"… ועוד {items.Count - limit} נוספים");
+                    details.AppendLine();
+                }
+
+                AppendSection("שגיאות",  errors);
+                AppendSection("אזהרות",  warnings);
+                AppendSection("מידע",     infos);
+
+                // אם אין שום פריט—הודעת הצלחה אחת קצרה במקום מקטעים ריקים
+                if (errors.Count == 0 && warnings.Count == 0 && infos.Count == 0)
+                    details.AppendLine("כל הבדיקות עברו בהצלחה ✓");
+
+                // ===== שליחת נוטיפיקציה אחת לפי חומרה =====
+                string title = "תוצאות אימות נתונים";
+                string message = summary.ToString().Trim();
+                string detailsText = details.ToString().Trim();
+
+                if (errors.Count > 0 || passed == false)
+                    AddErrorNotification(title, message, detailsText);
+                else if (warnings.Count > 0)
+                    AddWarningNotification(title, message, detailsText);
+                else
+                    AddSuccessNotification(title, message, detailsText);
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאת אימות", $"נכשלה בניית סיכום אימות: {ex.Message}");
+            }
+        }
+
+        // ===== עזרי שליפה בטוחים =====
+        private bool? TryGetBool(object obj, string prop)
+        {
+            var v = GetPropertyValue(obj, prop);
+            if (v == null) return null;
+            if (v is bool b) return b;
+            if (bool.TryParse(v.ToString(), out var parsed)) return parsed;
+            return null;
+        }
+
+        private string _SafeToString(object obj)
+        {
+            try { return obj?.ToString() ?? ""; } catch { return ""; }
+        }
+
+        private object GetPropertyValue(object obj, string propertyName)
+        {
+            if (obj == null) return null;
+            
+            try
+            {
+                var type = obj.GetType();
+                var property = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                
+                if (property != null)
+                {
+                    return property.GetValue(obj);
+                }
+                
+                if (obj is IDictionary<string, object> dict)
+                {
+                    return dict.TryGetValue(propertyName, out var value) ? value : null;
+                }
+                
+                if (obj.GetType().Name == "JObject")
+                {
+                    dynamic jObj = obj;
+                    return jObj[propertyName];
+                }
+                
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // מוסיף Validator עם smart_validation אם חסר בקונפיג
+        private static void EnsureSmartValidator(PipelineConfig? cfg)
+        {
+            if (cfg?.Processors == null) return;
+
+            bool HasSmartValidation(ProcessorConfig p)
+            {
+                if (!"validator".Equals(p.Type, StringComparison.OrdinalIgnoreCase)) return false;
+                if (p.Config == null) return false;
+                if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj is null) return false;
+
+                // תומך במגוון צורות (JArray/JObject/Dictionary/List)
+                if (opsObj is IEnumerable<object> list)
+                {
+                    foreach (var o in list)
+                    {
+                        if (o is Dictionary<string, object> d &&
+                            d.TryGetValue("action", out var act) &&
+                            "smart_validation".Equals(act?.ToString(), StringComparison.OrdinalIgnoreCase))
+                            return true;
+
+                        if (o is Newtonsoft.Json.Linq.JObject jo &&
+                            "smart_validation".Equals((string?)jo["action"], StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                }
+                else if (opsObj is Newtonsoft.Json.Linq.JArray jarr)
+                {
+                    foreach (var jo in jarr.OfType<Newtonsoft.Json.Linq.JObject>())
+                        if ("smart_validation".Equals((string?)jo["action"], StringComparison.OrdinalIgnoreCase))
+                            return true;
+                }
+
+                return false;
+            }
+
+            if (!cfg.Processors.Any(HasSmartValidation))
+            {
+                cfg.Processors = cfg.Processors.Concat(new[]
+                {
+                    new ProcessorConfig
+                    {
+                        Type = "validator",
+                        Config = new Dictionary<string, object>
+                        {
+                            ["operations"] = new[]
+                            {
+                                new Dictionary<string, object> { ["action"] = "smart_validation" }
+                            }
+                        }
+                    }
+                }).ToArray();
+            }
+        }
+
+
         #endregion
 
         #region אירועי ממשק
@@ -918,12 +1157,8 @@ namespace PipeWiseClient
 
                     var isDateColumn = columnSetting?.InferredType?.ToLower().Contains("date") == true;
 
-                    // DEBUG
-                    AddInfoNotification("DEBUG - בדיקת עמודת תאריך",
-                        $"עמודה: {columnName}\nסוג: {columnSetting?.InferredType}\nמזוהה כתאריך: {isDateColumn}");
-
                     if (!isDateColumn)
-                        continue; // דלג על הcheckbox הזה אם העמודה לא מסוג תאריך
+                        continue;
                 }
 
                 var checkBox = new CheckBox
@@ -1806,9 +2041,11 @@ namespace PipeWiseClient
                     SystemStatusText.Text = $"🟢 {pr.Status} ({pr.Percent}%)";
                 });
 
-                // שליפת ההגדרה המלאה
                 var full = await _api.GetPipelineAsync(p.id);
                 if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
+
+                // ודא שתמיד יש smart_validation
+                EnsureSmartValidator(full.pipeline);
 
                 RunPipelineResult runResult;
                 try
@@ -1823,6 +2060,7 @@ namespace PipeWiseClient
                 }
 
                 AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
+                HandleSmartValidationResults(runResult);
                 UpdateSystemStatus("המערכת פועלת תקין", true);
 
                 if (!string.IsNullOrWhiteSpace(runResult?.TargetPath))
@@ -1865,6 +2103,8 @@ namespace PipeWiseClient
                 }
                 cfg.Source.Path = FilePathTextBox.Text;
                 EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
+                EnsureSmartValidator(cfg);
+
 
                 // UI → Running
                 SetPhase(UiPhase.Running);
@@ -1906,6 +2146,19 @@ namespace PipeWiseClient
                 }
 
                 AddSuccessNotification("Pipeline הושלם!", result.message);
+                HandleSmartValidationResults(result);
+                // Tolerate different shapes/casings coming back from the API
+                var rp = GetPropertyValue(result!, "ReportPaths") ?? GetPropertyValue(result!, "report_paths");
+                string? htmlPath = rp != null
+                    ? (GetPropertyValue(rp, "HtmlPath")?.ToString() ?? GetPropertyValue(rp, "html_path")?.ToString())
+                    : null;
+                string? pdfPath = rp != null
+                    ? (GetPropertyValue(rp, "PdfPath")?.ToString() ?? GetPropertyValue(rp, "pdf_path")?.ToString())
+                    : null;
+
+                _hasLastRunReport = !string.IsNullOrWhiteSpace(htmlPath) || !string.IsNullOrWhiteSpace(pdfPath);
+
+                SetPhase(UiPhase.Completed);
 
                 if (!string.IsNullOrWhiteSpace(result.TargetPath))
                 {
@@ -2440,7 +2693,7 @@ namespace PipeWiseClient
                 }
                 catch { }
 
-                return new PipelineConfig
+                var built = new PipelineConfig
                 {
                     Source = new SourceConfig
                     {
@@ -2454,6 +2707,11 @@ namespace PipeWiseClient
                         Path = absoluteTargetPath
                     }
                 };
+
+                // הזרקת smart_validation אם חסר
+                EnsureSmartValidator(built);
+                return built;
+
             }
             catch (Exception ex)
             {
