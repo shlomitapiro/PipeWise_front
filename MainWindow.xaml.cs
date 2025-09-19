@@ -859,6 +859,13 @@ namespace PipeWiseClient
                 ("ממוצע", "average"),
                 ("מינימום", "min"),
                 ("מקסימום", "max"),
+                ("חציון", "median"),
+                ("סטיית תקן", "std"),
+                ("שונות", "variance"),
+                ("טווח", "range"),
+                ("ספירת ערכים תקינים", "count_valid"),
+                ("ערכים יחודיים", "count_distinct"),
+                ("ערך הכי נפוץ", "most_common"),
             }, columnName);
             operationsPanel.Children.Add(aggregationGroup);
 
@@ -1577,7 +1584,7 @@ namespace PipeWiseClient
                     result.Issues.Add(Issue($"עמודות חסרות בקובץ: {string.Join(", ", missing)}"));
                 }
 
-                var numericOps = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sum", "average", "min", "max" };
+                var numericOps = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sum", "average", "min", "max", "median", "std", "variance", "range", "count_valid", "count_distinct", "most_common" };
                 foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
                 {
                     if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
@@ -2318,7 +2325,9 @@ namespace PipeWiseClient
                             validationOps.Add(opDict);
                         }
                         else if (operation == "sum" || operation == "average" ||
-                                operation == "min" || operation == "max")
+                                operation == "min" || operation == "max" || operation == "median"
+                                || operation == "std" || operation == "variance" || operation == "range"
+                                || operation == "count_valid" || operation == "count_distinct" || operation == "most_common")
                         {
                             aggregationOps.Add(opDict);
                         }
