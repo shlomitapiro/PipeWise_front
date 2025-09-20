@@ -21,6 +21,7 @@ using PipeWiseClient.Services;
 using PipeWiseClient.Windows;
 using System.Text.Json;
 using Newtonsoft.Json.Linq;
+using System.Xml.Linq;
 
 namespace PipeWiseClient
 {
@@ -297,9 +298,8 @@ namespace PipeWiseClient
                     ".json" => "json",
                     ".xml" => "xml",
                     ".xlsx" or ".xls" => "excel",
-                    _ => "csv"
+                    _ => throw new NotSupportedException($"סוג קובץ {extension} אינו נתמך")
                 };
-
                 var payload = new
                 {
                     source = new
@@ -694,8 +694,11 @@ namespace PipeWiseClient
                     case ".json":
                         LoadJsonColumns(filePath);
                         break;
+                    case ".xml":
+                        LoadXmlColumns(filePath);
+                        break;
                     default:
-                        AddWarningNotification("פורמט לא נתמך", "לא ניתן לטעון עמודות עבור פורמט קובץ זה");
+                        AddWarningNotification("פורמט לא נתמך", $"לא ניתן לטעון עמודות עבור פורמט קובץ {extension}");
                         return;
                 }
 
@@ -743,12 +746,85 @@ namespace PipeWiseClient
 
         private void LoadJsonColumns(string filePath)
         {
-            var jsonText = File.ReadAllText(filePath);
-            var jsonArray = JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(jsonText);
-
-            if (jsonArray?.Count > 0)
+            try
             {
-                _columnNames = jsonArray[0].Keys.ToList();
+                var jsonText = File.ReadAllText(filePath);
+                var jsonData = JsonConvert.DeserializeObject(jsonText);
+                
+                _columnNames.Clear();
+                
+                // טיפול בarray של objects
+                if (jsonData is JArray jsonArray && jsonArray.Count > 0)
+                {
+                    if (jsonArray[0] is JObject firstObj)
+                    {
+                        _columnNames = firstObj.Properties().Select(p => p.Name).ToList();
+                    }
+                }
+                // טיפול בobject יחיד
+                else if (jsonData is JObject jsonObj)
+                {
+                    // אם זה object שמכיל arrays, נסה למצוא array ראשון
+                    var firstArray = jsonObj.Properties()
+                        .Select(p => p.Value)
+                        .OfType<JArray>()
+                        .FirstOrDefault();
+                        
+                    if (firstArray?.Count > 0 && firstArray[0] is JObject firstRecord)
+                    {
+                        _columnNames = firstRecord.Properties().Select(p => p.Name).ToList();
+                    }
+                    else
+                    {
+                        // אחרת קח את השדות של הobject עצמו
+                        _columnNames = jsonObj.Properties().Select(p => p.Name).ToList();
+                    }
+                }
+                
+                if (_columnNames.Count == 0)
+                {
+                    AddWarningNotification("JSON ריק", "לא נמצאו שדות בקובץ JSON");
+                }
+            }
+            catch (Exception ex)
+            {
+                AddWarningNotification("שגיאה בטעינת JSON", $"לא ניתן לטעון JSON: {ex.Message}");
+                _columnNames.Clear();
+            }
+        }
+
+        private void LoadXmlColumns(string filePath)
+        {
+            try 
+            {
+                var doc = XDocument.Load(filePath);
+                
+                // חפש את הרקורד הראשון שיש לו elements
+                var firstRecord = doc.Descendants()
+                    .Where(e => e.HasElements)
+                    .FirstOrDefault();
+                    
+                if (firstRecord != null)
+                {
+                    _columnNames = firstRecord.Elements()
+                        .Select(e => e.Name.LocalName)
+                        .Distinct()
+                        .ToList();
+                }
+                else
+                {
+                    // אם לא נמצא רקורד עם elements, נסה לקחת את כל השמות הייחודיים
+                    _columnNames = doc.Descendants()
+                        .Where(e => !e.HasElements && !string.IsNullOrWhiteSpace(e.Name.LocalName))
+                        .Select(e => e.Name.LocalName)
+                        .Distinct()
+                        .ToList();
+                }
+            }
+            catch (Exception ex)
+            {
+                AddWarningNotification("שגיאה בטעינת XML", $"לא ניתן לטעון XML: {ex.Message}");
+                _columnNames.Clear();
             }
         }
 
@@ -1633,8 +1709,10 @@ namespace PipeWiseClient
 
                 if (RemoveEmptyRowsCheckBox != null)
                     RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
+
                 if (RemoveDuplicatesCheckBox != null)
                     RemoveDuplicatesCheckBox.IsChecked = globalActions.Contains("remove_duplicates");
+
                 if (StripWhitespaceCheckBox != null)
                     StripWhitespaceCheckBox.IsChecked = globalActions.Contains("strip_whitespace");
 
@@ -1909,6 +1987,12 @@ namespace PipeWiseClient
 
                 if (RemoveEmptyRowsCheckBox?.IsChecked == true)
                     globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_empty_rows" });
+                
+                if (RemoveDuplicatesCheckBox?.IsChecked == true)
+                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_duplicates" });
+
+                if (StripWhitespaceCheckBox?.IsChecked == true)
+                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "strip_whitespace" });
 
                 var cleaningOps = new List<Dictionary<string, object>>();
                 var transformOps = new List<Dictionary<string, object>>();

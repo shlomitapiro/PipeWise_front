@@ -75,7 +75,7 @@ namespace PipeWiseClient.Services
                 {
                     ".csv" => "text/csv",
                     ".json" => "application/json",
-                    ".xml" => "application/xml",
+                    ".xml" => "text/xml", // שינוי ל-text/xml
                     ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     ".xls" => "application/vnd.ms-excel",
                     _ => "application/octet-stream"
