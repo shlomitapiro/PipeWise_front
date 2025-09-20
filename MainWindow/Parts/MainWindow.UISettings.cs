@@ -40,7 +40,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddWarningNotification("????? ??????", "?? ???? ????? ?????? ????", ex.Message);
+                AddWarningNotification("שמירת הגדרות", "לא ניתן לשמור הגדרות ממשק", ex.Message);
             }
         }
 
@@ -63,7 +63,7 @@ namespace PipeWiseClient
                     if (_notificationsCollapsed && NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
                     {
                         NotificationsScrollViewer.Visibility = Visibility.Collapsed;
-                        CollapseNotificationsBtn.Content = "??";
+                        CollapseNotificationsBtn.Content = "📂";
                     }
 
                     if (settings.WindowWidth > 0 && settings.WindowHeight > 0)
@@ -75,7 +75,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddWarningNotification("????? ??????", "?? ???? ????? ?????? ????, ?????? ?????? ????", ex.Message);
+                AddWarningNotification("טעינת הגדרות", "לא ניתן לטעון הגדרות ממשק, נטענות ברירות מחדל", ex.Message);
             }
         }
 
@@ -123,10 +123,10 @@ namespace PipeWiseClient
                 {
                     _notificationsCollapsed = false;
                     NotificationsScrollViewer.Visibility = Visibility.Visible;
-                    CollapseNotificationsBtn.Content = "??";
+                    CollapseNotificationsBtn.Content = "📦";
                 }
 
-                AddSuccessNotification("????? ????", "???? ?????? ????? ?????? ????");
+                AddSuccessNotification("איפוס ממשק", "ממשק המשתמש הוחזר לברירת מחדל");
 
                 _loadedConfig = null;
                 _hasCompatibleConfig = false;
@@ -135,7 +135,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddErrorNotification("????? ?????? ????", "?? ???? ???? ?? ???? ??????", ex.Message);
+                AddErrorNotification("שגיאה באיפוס ממשק", "לא ניתן לאפס את ממשק המשתמש", ex.Message);
             }
         }
 
@@ -185,14 +185,13 @@ namespace PipeWiseClient
                 {
                     var debugInfo = string.Join("\n", profileResult.Columns.Select(c =>
                         $"{c.Name}: {c.InferredType}"));
-                    AddInfoNotification("DEBUG - ???? ??????", debugInfo);
+                    AddInfoNotification("DEBUG - סוגי עמודות", debugInfo);
                 }
             }
             catch (Exception ex)
             {
-                AddWarningNotification("????? ???? ??????", "?? ???? ????? ???? ??????", ex.Message);
+                AddWarningNotification("זיהוי סוגי עמודות", "לא ניתן לזהות סוגי עמודות", ex.Message);
             }
         }
     }
 }
-

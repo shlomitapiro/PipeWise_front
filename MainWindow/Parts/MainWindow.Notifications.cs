@@ -202,11 +202,11 @@ namespace PipeWiseClient
         {
             return type switch
             {
-                NotificationType.Success => ("?", "#D4F4DD", "#28A745", "#155724"),
-                NotificationType.Error => ("?", "#F8D7DA", "#DC3545", "#721C24"),
-                NotificationType.Warning => ("??", "#FFF3CD", "#FFC107", "#856404"),
-                NotificationType.Info => ("??", "#CCE7FF", "#007BFF", "#004085"),
-                _ => ("??", "#F8F9FA", "#6C757D", "#495057")
+                NotificationType.Success => ("✅", "#D4F4DD", "#28A745", "#155724"),
+                NotificationType.Error => ("❌", "#F8D7DA", "#DC3545", "#721C24"),
+                NotificationType.Warning => ("⚠️", "#FFF3CD", "#FFC107", "#856404"),
+                NotificationType.Info => ("ℹ️", "#CCE7FF", "#007BFF", "#004085"),
+                _ => ("📝", "#F8F9FA", "#6C757D", "#495057")
             };
         }
 
@@ -231,9 +231,8 @@ namespace PipeWiseClient
         {
             if (SystemStatusText == null) return;
 
-            var icon = isHealthy ? "??" : "??";
+            var icon = isHealthy ? "🟢" : "🔴";
             SystemStatusText.Text = $"{icon} {status}";
         }
     }
 }
-
