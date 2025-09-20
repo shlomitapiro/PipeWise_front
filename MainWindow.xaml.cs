@@ -1398,6 +1398,13 @@ namespace PipeWiseClient
                 if (RemoveEmptyRowsCheckBox?.IsChecked == true)
                     globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_empty_rows" });
 
+                // Include other global operations if selected
+                if (RemoveDuplicatesCheckBox?.IsChecked == true)
+                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_duplicates" });
+
+                if (StripWhitespaceCheckBox?.IsChecked == true)
+                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "strip_whitespace" });
+
                 var cleaningOps = new List<Dictionary<string, object>>();
                 var transformOps = new List<Dictionary<string, object>>();
                 var aggregationOps = new List<Dictionary<string, object>>();
