@@ -31,44 +31,30 @@ namespace PipeWiseClient
         private Dictionary<string, ColumnSettings> _columnSettings = new Dictionary<string, ColumnSettings>();
         private PipelineConfig? _loadedConfig;
         private const string OUTPUT_DIR = @"C:\Users\shlom\PipeWise\output";
-
-        // מערכת התראות - הגדרות בסיסיות
         private List<NotificationItem> _notifications = new List<NotificationItem>();
         private bool _notificationsCollapsed = false;
         private const int MAX_NOTIFICATIONS = 50;
-
         private bool _isApplyingConfig = false;
-
         private CancellationTokenSource? _runCts;
-        
-        // ====== ניהול סטייט כללי ל-Enable/Disable כפתורים ======
         private UiPhase _phase = UiPhase.Idle;
         private bool _hasCompatibleConfig = false;
         private bool _hasLastRunReport = false;
         private bool _hasFile => !string.IsNullOrWhiteSpace(FilePathTextBox?.Text) && File.Exists(FilePathTextBox.Text);
-
-        // הגדרות לשמירת גדלי אזורים
         private const string SETTINGS_FILE = "ui_settings.json";
-
         public MainWindow()
         {
             try
             {
                 InitializeComponent();
 
-                // אתחול EPPlus
                 ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-                // טען הגדרות גדלי אזורים
                 LoadUISettings();
 
-                // הוספת הודעת ברכה
                 AddInfoNotification("ברוך הבא ל-PipeWise", "המערכת מוכנה לעיבוד נתונים");
 
-                // מאזין אירוע סגירה
                 this.Closing += MainWindow_Closing;
 
-                // סטייט התחלתי
                 SetPhase(UiPhase.Idle);
             }
             catch (Exception ex)
@@ -76,509 +62,6 @@ namespace PipeWiseClient
                 MessageBox.Show($"שגיאה באתחול החלון: {ex.Message}", "שגיאה", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
-        
-        #region ===== UI Phase Management =====
-
-        public enum UiPhase
-        {
-            Idle,                   // אין קובץ/קונפיג
-            FileSelected,           // נבחר קובץ
-            ConfigLoadedCompatible, // נטען קובץ + קונפיג תואם
-            ConfigLoadedMismatch,   // נטען קובץ + קונפיג לא תואם
-            Running,                // תהליך בעבודה
-            Completed               // ריצה הסתיימה (יש דוח/פלט)
-        }
-
-        private void SetPhase(UiPhase next)
-        {
-            _phase = next;
-            UpdateUiByPhase();
-
-            // Progress & Cancel visibility
-            if (RunProgressBar != null) RunProgressBar.Visibility = _phase == UiPhase.Running ? Visibility.Visible : Visibility.Collapsed;
-            if (RunProgressText != null) RunProgressText.Visibility = _phase == UiPhase.Running ? Visibility.Visible : Visibility.Collapsed;
-            Btn("CancelRunBtn").Let(b => b.IsEnabled = _phase == UiPhase.Running);
-        }
-
-        private Button? Btn(string name) => FindName(name) as Button;
-
-        private void UpdateUiByPhase()
-        {
-            // מאתרים כפתורים לפי x:Name (אם לא קיימים — מתעלמים)
-            Btn("BrowseFileBtn").Let((Button b) =>
-                b.IsEnabled = _phase is UiPhase.Idle or UiPhase.FileSelected or UiPhase.ConfigLoadedCompatible or UiPhase.ConfigLoadedMismatch or UiPhase.Completed);
-
-            Btn("LoadConfigBtn").Let((Button b) =>
-                b.IsEnabled = _hasFile && _phase != UiPhase.Running);
-
-            Btn("SaveConfigBtn").Let((Button b) =>
-                b.IsEnabled = _hasFile && _phase != UiPhase.Running);
-
-            Btn("RunBtn").Let((Button b) =>
-            {
-                var canRun =
-                    _hasFile &&
-                    _phase != UiPhase.Running &&
-                    // מרשה ריצה אד-הוק אם אין קונפיג טעון או אם יש קונפיג תואם
-                    (_loadedConfig == null || _hasCompatibleConfig);
-
-                b.IsEnabled = canRun;
-
-                b.ToolTip = canRun ? null :
-                    (!_hasFile ? "יש לבחור קובץ לפני הרצה"
-                     : (_loadedConfig != null && !_hasCompatibleConfig ? "הקונפיגורציה אינה תואמת לקובץ" : "הפעולה אינה זמינה כעת"));
-            });
-
-            Btn("RunSavedPipelineBtn").Let((Button b) =>
-                b.IsEnabled = _phase != UiPhase.Running);
-
-            Btn("SaveAsServerPipelineBtn").Let((Button b) =>
-                b.IsEnabled = (_hasFile || _loadedConfig != null) && _phase != UiPhase.Running);
-
-            Btn("ViewReportsBtn").Let((Button b) =>
-                b.IsEnabled = _hasLastRunReport && _phase != UiPhase.Running);
-
-            Btn("ResetSettingsBtn").Let((Button b) =>
-                b.IsEnabled = _phase != UiPhase.Running);
-
-            // עכבר בזמן ריצה
-            this.Cursor = _phase == UiPhase.Running ? System.Windows.Input.Cursors.AppStarting : null;
-        }
-
-        
-
-        #endregion
-        
-
-        #region ניהול הגדרות ממשק
-
-        /// <summary>
-        /// מודל להגדרות ממשק המשתמש
-        /// </summary>
-        
-        public class UISettings
-        {
-            public double OperationsAreaHeight { get; set; } = 2; // יחס גודל התחלתי
-            public double NotificationsAreaHeight { get; set; } = 1; // יחס גודל התחלתי
-            public bool NotificationsCollapsed { get; set; } = false;
-            public double WindowWidth { get; set; } = 900;
-            public double WindowHeight { get; set; } = 700;
-        }
-
-        /// <summary>
-        /// שמירת הגדרות ממשק המשתמש
-        /// </summary>
-        private void SaveUISettings()
-        {
-            try
-            {
-                var settings = new UISettings
-                {
-                    OperationsAreaHeight = GetGridRowHeight(2),
-                    NotificationsAreaHeight = GetGridRowHeight(5),
-                    NotificationsCollapsed = _notificationsCollapsed,
-                    WindowWidth = this.Width,
-                    WindowHeight = this.Height
-                };
-
-                var json = JsonConvert.SerializeObject(settings, Formatting.Indented);
-                File.WriteAllText(SETTINGS_FILE, json, Encoding.UTF8);
-            }
-            catch (Exception ex)
-            {
-                AddWarningNotification("שמירת הגדרות", "לא ניתן לשמור הגדרות ממשק", ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// טעינת הגדרות ממשק המשתמש
-        /// </summary>
-        private void LoadUISettings()
-        {
-            try
-            {
-                if (!File.Exists(SETTINGS_FILE))
-                    return;
-
-                var json = File.ReadAllText(SETTINGS_FILE, Encoding.UTF8);
-                var settings = JsonConvert.DeserializeObject<UISettings>(json);
-
-                if (settings != null)
-                {
-                    SetGridRowHeight(2, settings.OperationsAreaHeight);
-                    SetGridRowHeight(5, settings.NotificationsAreaHeight);
-
-                    _notificationsCollapsed = settings.NotificationsCollapsed;
-                    if (_notificationsCollapsed && NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
-                    {
-                        NotificationsScrollViewer.Visibility = Visibility.Collapsed;
-                        CollapseNotificationsBtn.Content = "📂";
-                    }
-
-                    if (settings.WindowWidth > 0 && settings.WindowHeight > 0)
-                    {
-                        this.Width = Math.Max(settings.WindowWidth, 600);
-                        this.Height = Math.Max(settings.WindowHeight, 500);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                AddWarningNotification("טעינת הגדרות", "לא ניתן לטעון הגדרות ממשק, נטענות ברירות מחדל", ex.Message);
-            }
-        }
-
-        private double GetGridRowHeight(int rowIndex)
-        {
-            var grid = FindName("MainGrid") as Grid ??
-                      (this.Content as Grid);
-
-            if (grid != null && rowIndex < grid.RowDefinitions.Count)
-            {
-                var rowDefinition = grid.RowDefinitions[rowIndex];
-                return rowDefinition.Height.Value;
-            }
-            return 1.0;
-        }
-
-        private void SetGridRowHeight(int rowIndex, double height)
-        {
-            var grid = FindName("MainGrid") as Grid ??
-                      (this.Content as Grid);
-
-            if (grid != null && rowIndex < grid.RowDefinitions.Count)
-            {
-                var rowDefinition = grid.RowDefinitions[rowIndex];
-                rowDefinition.Height = new GridLength(Math.Max(height, 0.5), GridUnitType.Star);
-            }
-        }
-
-        private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
-        {
-            SaveUISettings();
-        }
-
-        public void ResetUIToDefault()
-        {
-            try
-            {
-                SetGridRowHeight(2, 2.0);
-                SetGridRowHeight(5, 1.0);
-
-                this.Width = 900;
-                this.Height = 700;
-
-                if (NotificationsScrollViewer != null && CollapseNotificationsBtn != null)
-                {
-                    _notificationsCollapsed = false;
-                    NotificationsScrollViewer.Visibility = Visibility.Visible;
-                    CollapseNotificationsBtn.Content = "📦";
-                }
-
-                AddSuccessNotification("איפוס ממשק", "ממשק המשתמש הוחזר לברירת מחדל");
-
-                // איפוס סטייט כללי
-                _loadedConfig = null;
-                _hasCompatibleConfig = false;
-                _hasLastRunReport = false;
-                SetPhase(UiPhase.Idle);
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה באיפוס ממשק", "לא ניתן לאפס את ממשק המשתמש", ex.Message);
-            }
-        }
-
-        private async Task DetectColumnTypes(string filePath)
-        {
-            try
-            {
-                var extension = Path.GetExtension(filePath).ToLower();
-                var fileType = extension switch
-                {
-                    ".csv" => "csv",
-                    ".json" => "json",
-                    ".xml" => "xml",
-                    ".xlsx" or ".xls" => "excel",
-                    _ => "csv"
-                };
-
-                var payload = new
-                {
-                    source = new
-                    {
-                        type = fileType,
-                        path = filePath
-                    }
-                };
-
-                var profileResult = await _api.ProfileColumnsAsync(payload);
-
-                if (profileResult?.Columns != null)
-                {
-                    foreach (var column in profileResult.Columns)
-                    {
-                        if (_columnSettings.ContainsKey(column.Name))
-                        {
-                            _columnSettings[column.Name].InferredType = column.InferredType;
-                        }
-                        else
-                        {
-                            _columnSettings[column.Name] = new ColumnSettings
-                            {
-                                InferredType = column.InferredType
-                            };
-                        }
-                    }
-                }
-                if (profileResult?.Columns != null)
-                {
-                    var debugInfo = string.Join("\n", profileResult.Columns.Select(c =>
-                        $"{c.Name}: {c.InferredType}"));
-                    AddInfoNotification("DEBUG - סוגי עמודות", debugInfo);
-                }
-            }
-            catch (Exception ex)
-            {
-                AddWarningNotification("זיהוי סוגי עמודות", "לא ניתן לזהות סוגי עמודות", ex.Message);
-            }
-        }
-
-        #endregion
-
-        #region מערכת התראות
-
-        
-        public enum NotificationType
-        {
-            Success,
-            Error,
-            Warning,
-            Info
-        }
-
-        public class NotificationItem
-        {
-            public string Id { get; set; } = Guid.NewGuid().ToString();
-            public NotificationType Type { get; set; }
-            public string Title { get; set; } = string.Empty;
-            public string Message { get; set; } = string.Empty;
-            public DateTime Timestamp { get; set; } = DateTime.Now;
-            public bool IsDetailed { get; set; } = false;
-            public string? Details { get; set; }
-        }
-
-        public void AddSuccessNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Success, title, message, details);
-        }
-
-        public void AddErrorNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Error, title, message, details);
-        }
-
-        public void AddWarningNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Warning, title, message, details);
-        }
-
-        public void AddInfoNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Info, title, message, details);
-        }
-
-        private void AddNotification(NotificationType type, string title, string message, string? details = null)
-        {
-            var notification = new NotificationItem
-            {
-                Type = type,
-                Title = title,
-                Message = message,
-                Details = details,
-                IsDetailed = !string.IsNullOrEmpty(details)
-            };
-
-            _notifications.Insert(0, notification);
-
-            if (_notifications.Count > MAX_NOTIFICATIONS)
-            {
-                _notifications.RemoveAt(_notifications.Count - 1);
-            }
-
-            RefreshNotificationsDisplay();
-        }
-
-        private void RefreshNotificationsDisplay()
-        {
-            if (NotificationsPanel == null) return;
-
-            NotificationsPanel.Children.Clear();
-
-            if (DefaultMessageBorder != null)
-            {
-                DefaultMessageBorder.Visibility = _notifications.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-            }
-
-            foreach (var notification in _notifications)
-            {
-                var notificationElement = CreateNotificationElement(notification);
-                NotificationsPanel.Children.Add(notificationElement);
-            }
-
-            UpdateNotificationCount();
-
-            if (LastNotificationTimeText != null)
-            {
-                LastNotificationTimeText.Text = DateTime.Now.ToString("HH:mm:ss");
-            }
-
-            if (NotificationsScrollViewer != null)
-            {
-                NotificationsScrollViewer.ScrollToTop();
-            }
-        }
-
-        private Border CreateNotificationElement(NotificationItem notification)
-        {
-            var (icon, backgroundColor, borderColor, textColor) = GetNotificationStyle(notification.Type);
-
-            var border = new Border
-            {
-                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(backgroundColor)),
-                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(borderColor)),
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(15, 12, 15, 12),
-                Margin = new Thickness(1, 0, 1, 0)
-            };
-
-            var mainPanel = new StackPanel();
-
-            var headerPanel = new Grid();
-            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var leftPanel = new StackPanel { Orientation = Orientation.Horizontal };
-
-            var iconText = new TextBlock
-            {
-                Text = icon,
-                FontSize = 14,
-                Margin = new Thickness(0, 0, 8, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            var titleText = new TextBlock
-            {
-                Text = notification.Title,
-                FontWeight = FontWeights.SemiBold,
-                FontSize = 12,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(textColor)),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            leftPanel.Children.Add(iconText);
-            leftPanel.Children.Add(titleText);
-
-            var timeText = new TextBlock
-            {
-                Text = notification.Timestamp.ToString("HH:mm:ss"),
-                FontSize = 10,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#6C757D")),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            headerPanel.Children.Add(leftPanel);
-            headerPanel.Children.Add(timeText);
-            Grid.SetColumn(leftPanel, 0);
-            Grid.SetColumn(timeText, 1);
-
-            mainPanel.Children.Add(headerPanel);
-
-            var messageText = new TextBlock
-            {
-                Text = notification.Message,
-                FontSize = 11,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(textColor)),
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(22, 4, 0, 0)
-            };
-
-            mainPanel.Children.Add(messageText);
-
-            if (notification.IsDetailed && !string.IsNullOrEmpty(notification.Details))
-            {
-                var detailsBorder = new Border
-                {
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F8F9FA")),
-                    CornerRadius = new CornerRadius(4),
-                    Padding = new Thickness(10, 10, 10, 10),
-                    Margin = new Thickness(22, 6, 0, 0)
-                };
-
-                var detailsText = new TextBlock
-                {
-                    Text = notification.Details,
-                    FontSize = 10,
-                    Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#495057")),
-                    TextWrapping = TextWrapping.Wrap,
-                    FontFamily = new FontFamily("Consolas")
-                };
-
-                detailsBorder.Child = detailsText;
-                mainPanel.Children.Add(detailsBorder);
-            }
-
-            border.Child = mainPanel;
-
-            border.Opacity = 0;
-            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300));
-            border.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-
-            return border;
-        }
-
-        private (string icon, string backgroundColor, string borderColor, string textColor) GetNotificationStyle(NotificationType type)
-        {
-            return type switch
-            {
-                NotificationType.Success => ("✅", "#D4F4DD", "#28A745", "#155724"),
-                NotificationType.Error => ("❌", "#F8D7DA", "#DC3545", "#721C24"),
-                NotificationType.Warning => ("⚠️", "#FFF3CD", "#FFC107", "#856404"),
-                NotificationType.Info => ("ℹ️", "#CCE7FF", "#007BFF", "#004085"),
-                _ => ("📝", "#F8F9FA", "#6C757D", "#495057")
-            };
-        }
-
-        private void UpdateNotificationCount()
-        {
-            if (NotificationCountBadge == null || NotificationCountText == null) return;
-
-            var count = _notifications.Count;
-
-            if (count > 0)
-            {
-                NotificationCountBadge.Visibility = Visibility.Visible;
-                NotificationCountText.Text = count > 99 ? "99+" : count.ToString();
-            }
-            else
-            {
-                NotificationCountBadge.Visibility = Visibility.Collapsed;
-            }
-        }
-
-        public void UpdateSystemStatus(string status, bool isHealthy = true)
-        {
-            if (SystemStatusText == null) return;
-
-            var icon = isHealthy ? "🟢" : "🔴";
-            SystemStatusText.Text = $"{icon} {status}";
-        }
-
-        #endregion
-
-        #region אירועי ממשק
 
         private void ClearNotifications_Click(object sender, RoutedEventArgs e)
         {
@@ -638,7 +121,7 @@ namespace PipeWiseClient
                 AddErrorNotification("שגיאת חלון דוחות", "שגיאה בפתיחת חלון הדוחות", ex.Message);
             }
         }
-
+       
         private async void BrowseFile_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -677,7 +160,7 @@ namespace PipeWiseClient
                 AddErrorNotification("שגיאה בבחירת קובץ", "לא ניתן לבחור את הקובץ", ex.Message);
             }
         }
-
+        
         private async Task LoadFileColumns(string filePath)
         {
             try
@@ -720,7 +203,7 @@ namespace PipeWiseClient
                 AddErrorNotification("שגיאה בטעינת עמודות", "לא ניתן לטעון את עמודות הקובץ", ex.Message);
             }
         }
-
+      
         private void LoadCsvColumns(string filePath)
         {
             using var reader = new StreamReader(filePath, System.Text.Encoding.UTF8);
@@ -1269,6 +752,7 @@ namespace PipeWiseClient
                 }
             }
         }
+        
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -1476,7 +960,6 @@ namespace PipeWiseClient
             await Task.CompletedTask;
         }
 
-        // פונקציית עזר: יצירת CompatibilityIssue בבטחה (תומך בשמות שדה שכיחים)
         private static CompatibilityIssue Issue(string msg)
         {
             var issue = new CompatibilityIssue();
@@ -1594,6 +1077,7 @@ namespace PipeWiseClient
 
             return result;
         }
+
         private async Task ApplyConfigToUI(PipelineConfig cfg)
         {
             _isApplyingConfig = true;
@@ -1899,7 +1383,6 @@ namespace PipeWiseClient
                 if (RunProgressText != null) RunProgressText.Text = "0%";
             }
         }
-
 
         private PipelineConfig? BuildPipelineConfig()
         {
@@ -2478,56 +1961,6 @@ namespace PipeWiseClient
                 return false;
             }
         }
-        
-        private async Task OpenCategoricalEncodingWindow(string fieldName)
-        {
-            try
-            {
-                var filePath = FilePathTextBox.Text?.Trim();
-                if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
-                {
-                    AddWarningNotification("קובץ חסר", 
-                        "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
-                    return;
-                }
-
-                // יצירת חלון קידוד קטגוריאלי
-                var encodingWindow = new CategoricalEncodingWindow(_api, filePath, fieldName)
-                {
-                    Owner = this
-                };
-
-                if (encodingWindow.ShowDialog() == true && encodingWindow.Result != null)
-                {
-                   var winCfg = encodingWindow.Result; // PipeWiseClient.Windows.CategoricalEncodingConfig
-
-                   // Map Windows.CategoricalEncodingConfig -> PipeWiseClient.Models.CategoricalEncodingConfig
-                   var mapped = new PipeWiseClient.Models.CategoricalEncodingConfig
-                   {
-                       Field = winCfg.Field,
-                       Mapping = new Dictionary<string, int>(winCfg.Mapping),
-                       TargetField = winCfg.TargetField,
-                       ReplaceOriginal = winCfg.ReplaceOriginal,
-                       DeleteOriginal = winCfg.DeleteOriginal,
-                       DefaultValue = winCfg.DefaultValue
-                   };
-
-                   // Save mapped config into column settings
-                   var settings = _columnSettings[fieldName];
-                   settings.CategoricalEncoding = mapped;
-
-                   AddSuccessNotification("קידוד קטגוריאלי",
-                       $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
-               }
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בקידוד קטגוריאלי", 
-                    "לא ניתן לפתוח חלון קידוד קטגוריאלי", ex.Message);
-            }
-        }
-
-        #endregion
         
     }
 }
