@@ -869,15 +869,6 @@ namespace PipeWiseClient
             }, columnName);
             operationsPanel.Children.Add(aggregationGroup);
 
-            var validationGroup = CreateOperationGroup("✅ אימות", new[]
-            {
-                ("שדה חובה", "required_field"),
-                ("אמת טווח מספרי", "validate_numeric_range"),
-                ("אמת אורך טקסט", "validate_text_length"),
-                ("אמת תקינות תאריכים", "validate_date_format")
-            }, columnName);
-            operationsPanel.Children.Add(validationGroup);
-
             stackPanel.Children.Add(operationsPanel);
             border.Child = stackPanel;
 
@@ -953,35 +944,8 @@ namespace PipeWiseClient
                     {
                         if (checkBox.IsChecked == true)
                         {
-                            // אם זה אימות תאריכים, פתח חלון הגדרות
-                            if (operationName == "validate_date_format")
-                            {
-                                var settingsWindow = new DateValidationSettingsWindow()
-                                {
-                                    Owner = this
-                                };
 
-                                var result = settingsWindow.ShowDialog();
-
-                                if (result != true)
-                                {
-                                    // המשתמש ביטל - בטל את הסימון
-                                    checkBox.IsChecked = false;
-                                    return;
-                                }
-
-                                // שמור את ההגדרות
-                                var settings = _columnSettings[columnName];
-                                if (settings.DateValidationSettings == null)
-                                    settings.DateValidationSettings = new DateValidationSettings();
-
-                                // בחלק שמור את ההגדרות:
-                                settings.DateValidationSettings.Action = settingsWindow.Action;
-                                settings.DateValidationSettings.ReplacementDate = settingsWindow.ReplacementDate;
-                                settings.DateValidationSettings.DateFormat = settingsWindow.DateFormat; // הוסף שורה זו
-                            }
-
-                            else if (operationName == "replace_empty_values")
+                            if (operationName == "replace_empty_values")
                             {
                                 var inferredType = _columnSettings[columnName].InferredType ?? "string";
                                 var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
@@ -1229,13 +1193,6 @@ namespace PipeWiseClient
                         else
                         {
                             _columnSettings[columnName].Operations.Remove(operationName);
-
-                            // נקה הגדרות תאריך אם מבטלים
-                            if (operationName == "validate_date_format")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.DateValidationSettings = null;
-                            }
 
                             if (operationName == "replace_empty_values")
                             {
@@ -1955,14 +1912,16 @@ namespace PipeWiseClient
 
                 var cleaningOps = new List<Dictionary<string, object>>();
                 var transformOps = new List<Dictionary<string, object>>();
-                var validationOps = new List<Dictionary<string, object>>();
                 var aggregationOps = new List<Dictionary<string, object>>();
                 var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
-                     "replace_empty_values","replace_null_values",
-                     "remove_empty_values","remove_null_values",
-                     "to_uppercase","to_lowercase","remove_special_characters",
-                     "set_numeric_range","set_date_format"
-                 };
+                    "replace_empty_values","replace_null_values",
+                    "remove_empty_values","remove_null_values",
+                    "to_uppercase","to_lowercase","remove_special_characters",
+                    "set_numeric_range","set_date_format","remove_invalid_dates","remove_invalid_identifier",
+                    "validate_email_format","validate_positive_number","validate_not_empty",
+                    "validate_types","validate_text_length","validate_date_format","validate_date",
+                    "validate_numeric_range","required_fields"
+                };
 
                 foreach (var kvp in _columnSettings)
                 {
@@ -2275,19 +2234,20 @@ namespace PipeWiseClient
                         if (operation.StartsWith("remove_") || operation.StartsWith("replace_")
                             || operation == "strip_whitespace"
                             || operation == "set_numeric_range"
-                            || operation == "set_date_format")
+                            || operation == "set_date_format"
+                            || operation == "to_uppercase"
+                            || operation == "to_lowercase")
                         {
                             cleaningOps.Add(opDict);
                         }
-
-                        else if (operation.StartsWith("to_") || operation == "cast_type" ||
+                        else if (operation == "cast_type" ||
                                 operation == "normalize_numeric" || operation == "rename_field" ||
                                 operation == "merge_columns" || operation == "split_field")
                         {
                             transformOps.Add(opDict);
                         }
 
-                        else if (operation.StartsWith("validate_") || operation == "required_field")
+                        else if (operation.StartsWith("validate_") || operation == "required_fields")
                         {
 
                             if (operation == "validate_date_format" && settings.DateValidationSettings != null)
@@ -2320,8 +2280,6 @@ namespace PipeWiseClient
 
                                 opDict.Remove("column");
                             }
-
-                            validationOps.Add(opDict);
                         }
                         else if (operation == "sum" || operation == "average" ||
                                 operation == "min" || operation == "max" || operation == "median"
@@ -2374,15 +2332,6 @@ namespace PipeWiseClient
                     {
                         Type = "transformer",
                         Config = new Dictionary<string, object> { ["operations"] = transformOps }
-                    });
-                }
-
-                if (validationOps.Count > 0)
-                {
-                    processors.Add(new ProcessorConfig
-                    {
-                        Type = "validator",
-                        Config = new Dictionary<string, object> { ["operations"] = validationOps }
                     });
                 }
 
