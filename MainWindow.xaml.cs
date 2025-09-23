@@ -1,8 +1,9 @@
+// PipeWise_Client/MainWindow.xaml.cs
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
@@ -19,7 +20,6 @@ using PipeWiseClient.Helpers;
 using PipeWiseClient.Models;
 using PipeWiseClient.Services;
 using PipeWiseClient.Windows;
-using System.Text.Json;
 using Newtonsoft.Json.Linq;
 using System.Xml.Linq;
 
@@ -32,44 +32,40 @@ namespace PipeWiseClient
         private Dictionary<string, ColumnSettings> _columnSettings = new Dictionary<string, ColumnSettings>();
         private PipelineConfig? _loadedConfig;
         private const string OUTPUT_DIR = @"C:\Users\shlom\PipeWise\output";
-
-        // מערכת התראות - הגדרות בסיסיות
         private List<NotificationItem> _notifications = new List<NotificationItem>();
         private bool _notificationsCollapsed = false;
         private const int MAX_NOTIFICATIONS = 50;
-
         private bool _isApplyingConfig = false;
-
         private CancellationTokenSource? _runCts;
-        
-        // ====== ניהול סטייט כללי ל-Enable/Disable כפתורים ======
-        private UiPhase _phase = UiPhase.Idle;
         private bool _hasCompatibleConfig = false;
         private bool _hasLastRunReport = false;
         private bool _hasFile => !string.IsNullOrWhiteSpace(FilePathTextBox?.Text) && File.Exists(FilePathTextBox.Text);
-
-        // הגדרות לשמירת גדלי אזורים
         private const string SETTINGS_FILE = "ui_settings.json";
+        private static readonly string[] DATE_INPUT_FORMATS = new[]
+        {
+            "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",
+            "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y",
+            "%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d.%m.%Y %H:%M:%S",
+            "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S",
 
+            "%d-%m-%y", "%d/%m/%y", "%d.%m.%y",
+            "%y-%m-%d", "%y/%m/%d", "%m/%d/%y",
+            "%d-%m-%y %H:%M:%S", "%d/%m/%y %H:%M:%S", "%y-%m-%d %H:%M:%S",
+        };
         public MainWindow()
         {
             try
             {
                 InitializeComponent();
 
-                // אתחול EPPlus
                 ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-                // טען הגדרות גדלי אזורים
                 LoadUISettings();
 
-                // הוספת הודעת ברכה
                 AddInfoNotification("ברוך הבא ל-PipeWise", "המערכת מוכנה לעיבוד נתונים");
 
-                // מאזין אירוע סגירה
                 this.Closing += MainWindow_Closing;
 
-                // סטייט התחלתי
                 SetPhase(UiPhase.Idle);
             }
             catch (Exception ex)
@@ -1294,52 +1290,51 @@ namespace PipeWiseClient
                                 s.DateFormatApply = null;
                             }
 
-                            if (operationName == "remove_invalid_dates")
-                            {
-                                var s = _columnSettings[columnName];
-                                s.InvalidDateRemoval = null;
-                            }
+            if (result == MessageBoxResult.Yes)
+            {
+                _notifications.Clear();
+                RefreshNotificationsDisplay();
 
-                            if (operationName == "remove_invalid_identifier")
-                            {
-                                var s = _columnSettings[columnName];
-                                s.IdentifierValidation = null;
-                            }
-
-                            if (operationName == "normalize_numeric")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.NormalizeSettings = null;
-                            }
-
-                            if (operationName == "rename_field")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.RenameSettings = null;
-                            }
-
-                            if (operationName == "merge_columns")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.MergeColumnsSettings = null;
-                            }
-
-                            if (operationName == "split_field")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.SplitFieldSettings = null;
-                            }
-
-                            if (operationName == "categorical_encoding")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.CategoricalEncoding = null;
-                            }
-                        }
-                    }
-                }
+                AddSuccessNotification("הצלחה", "כל ההתראות נוקו");
             }
         }
+
+        private void ToggleNotifications_Click(object sender, RoutedEventArgs e)
+        {
+            if (NotificationsScrollViewer == null || CollapseNotificationsBtn == null) return;
+
+            _notificationsCollapsed = !_notificationsCollapsed;
+
+            if (_notificationsCollapsed)
+            {
+                NotificationsScrollViewer.Visibility = Visibility.Collapsed;
+                CollapseNotificationsBtn.Content = "📂";
+                AddInfoNotification("ממשק", "אזור ההתראות כווץ");
+            }
+            else
+            {
+                NotificationsScrollViewer.Visibility = Visibility.Visible;
+                CollapseNotificationsBtn.Content = "📦";
+                AddInfoNotification("ממשק", "אזור ההתראות הורחב");
+            }
+
+            SaveUISettings();
+        }
+
+        private void ViewReports_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                AddInfoNotification("פתיחת דוחות", "פותח חלון הדוחות...");
+                var reportsWindow = new ReportsWindow();
+                reportsWindow.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאת חלון דוחות", "שגיאה בפתיחת חלון הדוחות", ex.Message);
+            }
+        }
+
         private void ResetSettings_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -1353,20 +1348,16 @@ namespace PipeWiseClient
                 if (result == MessageBoxResult.Cancel)
                     return;
 
-                // איפוס הגדרות נתונים
                 _columnSettings.Clear();
                 FilePathTextBox!.Text = string.Empty;
                 FileInfoTextBlock!.Text = "לא נבחר קובץ";
 
-                // הסתרת ממשק העמודות
                 NoFileMessageTextBlock.Visibility = Visibility.Visible;
                 GlobalOperationsPanel.Visibility = Visibility.Collapsed;
                 ColumnsScrollViewer.Visibility = Visibility.Collapsed;
 
-                // איפוס כל ה-checkboxes
                 ResetCheckBoxesInPanel(this);
 
-                // איפוס סטייטים
                 _loadedConfig = null;
                 _hasCompatibleConfig = false;
                 _hasLastRunReport = false;
@@ -1445,7 +1436,6 @@ namespace PipeWiseClient
         {
             try
             {
-                // 1) ודא שקודם נטען קובץ מקור
                 if (string.IsNullOrWhiteSpace(FilePathTextBox?.Text) || !File.Exists(FilePathTextBox.Text))
                 {
                     var ask = MessageBox.Show(
@@ -1491,7 +1481,6 @@ namespace PipeWiseClient
                     AddInfoNotification("תזכורת", "הקונפיגורציה חייבת להיות תואמת למבנה הקובץ שנטען.");
                 }
 
-                // 2) בחירת קובץ קונפיגורציה
                 var cfgDlg = new Microsoft.Win32.OpenFileDialog
                 {
                     Filter = "JSON Files (*.json)|*.json",
@@ -1507,7 +1496,6 @@ namespace PipeWiseClient
                     return;
                 }
 
-                // 3) בדיקת תאימות
                 var filePath = FilePathTextBox!.Text;
 
                 var validation = LocalValidateCompatibility(cfg!, filePath, _columnNames);
@@ -1529,7 +1517,6 @@ namespace PipeWiseClient
                     return;
                 }
 
-                // 4) תאימות מלאה
                 _loadedConfig = cfg!;
                 _hasCompatibleConfig = true;
                 AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(cfgDlg.FileName)}");
@@ -1542,12 +1529,8 @@ namespace PipeWiseClient
                 _hasCompatibleConfig = false;
                 SetPhase(UiPhase.ConfigLoadedMismatch);
             }
-
-            // כדי למנוע אזהרת CS1998 במתודה async ללא await
-            await Task.CompletedTask;
         }
 
-        // פונקציית עזר: יצירת CompatibilityIssue בבטחה (תומך בשמות שדה שכיחים)
         private static CompatibilityIssue Issue(string msg)
         {
             var issue = new CompatibilityIssue();
@@ -1559,1194 +1542,3 @@ namespace PipeWiseClient
                 prop.SetValue(issue, msg);
             return issue;
         }
-
-        private PipeWiseClient.Models.CompatResult LocalValidateCompatibility(PipelineConfig cfg, string filePath, List<string> detectedColumns)
-        {
-            var result = new PipeWiseClient.Models.CompatResult();
-
-            try
-            {
-                var requiredCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
-                {
-                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null)
-                        continue;
-
-                    if (opsObj is Newtonsoft.Json.Linq.JArray jarr)
-                    {
-                        foreach (var tok in jarr.OfType<Newtonsoft.Json.Linq.JObject>())
-                        {
-                            string? col = (string?)tok["column"] ?? (string?)tok["field"];
-                            if (col == null && tok["fields"] is JArray farr && farr.First is JValue v && v.Type == JTokenType.String)
-                                col = (string?)v;
-
-                            if (!string.IsNullOrWhiteSpace(col))
-                                requiredCols.Add(col);
-                        }
-                    }
-                    else if (opsObj is System.Text.Json.Nodes.JsonArray sArr)
-                    {
-                        foreach (var node in sArr)
-                        {
-                            var col = node?["column"]?.GetValue<string>();
-                            if (!string.IsNullOrWhiteSpace(col))
-                                requiredCols.Add(col);
-                        }
-                    }
-                    else if (opsObj is IEnumerable<object> plainList)
-                    {
-                        foreach (var item in plainList)
-                        {
-                            var dict = item as Dictionary<string, object>;
-                            if (dict != null && dict.TryGetValue("column", out var cObj) && cObj is string c && !string.IsNullOrWhiteSpace(c))
-                                requiredCols.Add(c);
-                        }
-                    }
-                }
-
-                var colsLower = new HashSet<string>(detectedColumns.Select(s => s.Trim()), StringComparer.OrdinalIgnoreCase);
-                var missing = requiredCols.Where(rc => !colsLower.Contains(rc.Trim())).ToList();
-                if (missing.Any())
-                {
-                    result.IsCompatible = false;
-                    result.Issues.Add(Issue($"עמודות חסרות בקובץ: {string.Join(", ", missing)}"));
-                }
-
-                var numericOps = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "sum", "average", "min", "max", "median", "std", "variance", "range", "count_valid", "count_distinct", "most_common" };
-                foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
-                {
-                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
-
-                    IEnumerable<(string action, string? column)> EnumerateOps()
-                    {
-                        if (opsObj is Newtonsoft.Json.Linq.JArray jarr)
-                        {
-                            foreach (var tok in jarr.OfType<Newtonsoft.Json.Linq.JObject>())
-                                yield return (((string?)tok["action"]) ?? "", (string?)tok["column"]);
-                        }
-                        else if (opsObj is System.Text.Json.Nodes.JsonArray sArr)
-                        {
-                            foreach (var node in sArr)
-                                yield return ((node?["action"]?.GetValue<string>()) ?? "", node?["column"]?.GetValue<string>());
-                        }
-                        else if (opsObj is IEnumerable<object> plainList)
-                        {
-                            foreach (var item in plainList)
-                            {
-                                var dict = item as Dictionary<string, object>;
-                                var action = dict != null && dict.TryGetValue("action", out var aObj) ? aObj?.ToString() ?? "" : "";
-                                var col = dict != null && dict.TryGetValue("column", out var cObj) ? cObj as string : null;
-                                yield return (action, col);
-                            }
-                        }
-                    }
-
-                    foreach (var (action, col) in EnumerateOps())
-                    {
-                        if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(col)) continue;
-
-                        if (numericOps.Contains(action) && colsLower.Contains(col))
-                        {
-                            var hint = col!.ToLowerInvariant();
-                            if (!(hint.Contains("price") || hint.Contains("qty") || hint.Contains("quantity") || hint.Contains("total") || hint.Contains("amount") || hint.Contains("count")))
-                            {
-                                result.Issues.Add(Issue($"בדיקה: הפעולה '{action}' על '{col}' נראית מספרית — ודא שהעמודה מספרית."));
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                result.IsCompatible = false;
-                result.Issues.Add(Issue("שגיאה בבדיקת התאימות: " + ex.Message));
-            }
-
-            return result;
-        }
-        private async Task ApplyConfigToUI(PipelineConfig cfg)
-        {
-            _isApplyingConfig = true;
-            try
-            {
-                var sourcePath = cfg.Source?.Path;
-                if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
-                {
-                    FilePathTextBox!.Text = sourcePath;
-                    await LoadFileColumns(sourcePath);
-                }
-
-                if (!string.IsNullOrWhiteSpace(cfg.Target?.Type))
-                    SelectTargetTypeInUi(cfg.Target.Type);
-
-                var globalActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var perColumnOps = new List<(string column, string action)>();
-
-                foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
-                {
-                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
-
-                    if (opsObj is JArray jarr)
-                    {
-                        foreach (var tok in jarr.OfType<JObject>())
-                        {
-                            var action = (string?)tok["action"];
-                            // נסה column, ואם אין – field, ואם אין – הראשון מתוך fields
-                            var column = (string?)tok["column"];
-                            column ??= (string?)tok["field"];
-                            if (column == null && tok["fields"] is JArray farr && farr.First is JValue v && v.Type == JTokenType.String)
-                                column = (string?)v;
-                            if (string.IsNullOrWhiteSpace(action)) continue;
-
-                            if (string.IsNullOrWhiteSpace(column))
-                                globalActions.Add(action);
-                            else
-                                perColumnOps.Add((column, action));
-                        }
-                    }
-                }
-
-                if (RemoveEmptyRowsCheckBox != null)
-                    RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
-
-                if (RemoveDuplicatesCheckBox != null)
-                    RemoveDuplicatesCheckBox.IsChecked = globalActions.Contains("remove_duplicates");
-
-                if (StripWhitespaceCheckBox != null)
-                    StripWhitespaceCheckBox.IsChecked = globalActions.Contains("strip_whitespace");
-
-                if (ColumnsPanel != null && ColumnsPanel.Children.Count > 0 && perColumnOps.Count > 0)
-                {
-                    foreach (var (column, action) in perColumnOps)
-                    {
-                        var tag = $"{column}:{action}";
-                        var cb = FindCheckBoxByTag(ColumnsPanel, tag);
-                        if (cb != null) cb.IsChecked = true;
-                    }
-                }
-                else if (perColumnOps.Count > 0 && !string.IsNullOrWhiteSpace(sourcePath) && !File.Exists(sourcePath))
-                {
-                    AddWarningNotification("קובץ מקור לא נטען",
-                        "זוהו פעולות לפי עמודות, אך הקובץ ב-source.path לא נמצא. בחר קובץ נתונים זהה לזה שבקונפיג כדי לסמן אוטומטית.");
-                }
-            }
-            finally
-            {
-                _isApplyingConfig = false;
-            }
-        }
-
-        private void SelectTargetTypeInUi(string type)
-        {
-            if (TargetTypeComboBox is ComboBox cb)
-            {
-                foreach (var obj in cb.Items)
-                {
-                    if (obj is ComboBoxItem it && it.Tag is string tag &&
-                        string.Equals(tag, type, StringComparison.OrdinalIgnoreCase))
-                    {
-                        cb.SelectedItem = it;
-                        break;
-                    }
-                }
-            }
-        }
-
-        private CheckBox? FindCheckBoxByTag(DependencyObject root, string tag)
-        {
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            {
-                var child = VisualTreeHelper.GetChild(root, i);
-                if (child is CheckBox cb && cb.Tag is string s && string.Equals(s, tag, StringComparison.OrdinalIgnoreCase))
-                    return cb;
-
-                var inner = FindCheckBoxByTag(child, tag);
-                if (inner != null) return inner;
-            }
-            return null;
-        }
-
-        private async void SaveAsServerPipeline_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var cfg = _loadedConfig ?? BuildPipelineConfig();
-                if (cfg == null)
-                {
-                    AddErrorNotification("שגיאת קונפיג", "אין קונפיגורציה תקינה");
-                    return;
-                }
-
-                string baseName;
-                var fp = FilePathTextBox != null ? FilePathTextBox.Text : null;
-                if (!string.IsNullOrWhiteSpace(fp))
-                    baseName = System.IO.Path.GetFileNameWithoutExtension(fp);
-                else
-                    baseName = $"Pipeline {System.DateTime.Now:yyyy-MM-dd HH:mm}";
-
-                var dlg = new PipeWiseClient.Windows.PipelineNameDialog($"{baseName} – שמור");
-                dlg.Owner = this;
-                var ok = dlg.ShowDialog() == true;
-                if (!ok || string.IsNullOrWhiteSpace(dlg.PipelineName))
-                    return;
-
-                EnsureSafeTargetPath(cfg, fp ?? string.Empty);
-
-                var resp = await _api.CreatePipelineAsync(cfg, name: dlg.PipelineName);
-
-                AddSuccessNotification("Pipeline נשמר בשרת",
-                    $"'{dlg.PipelineName}' (ID: {resp?.id})",
-                    resp?.message ?? "נשמר בהצלחה. ניתן לחפש לפי השם בעמוד הפייפליינים.");
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בשמירה לשרת", "לא ניתן לשמור את הפייפליין", ex.Message);
-            }
-        }
-
-        private void CancelRun_Click(object sender, RoutedEventArgs e)
-        {
-            _runCts?.Cancel();
-            AddInfoNotification("ביטול", "הריצה מתבטלת…");
-        }
-
-        private async void RunSavedPipeline_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var picker = new PipeWiseClient.Windows.PipelinePickerWindow { Owner = this };
-                var ok = picker.ShowDialog() == true && picker.SelectedPipeline != null;
-                if (!ok)
-                {
-                    AddInfoNotification("בחירה בוטלה", "לא נבחר פייפליין.");
-                    return;
-                }
-
-                var p = picker.SelectedPipeline!;
-                SetPhase(UiPhase.Running);
-                UpdateSystemStatus($"מריץ '{p.name}'…", true);
-                AddInfoNotification("הרצה", $"מריץ את '{p.name}'");
-
-                _runCts = new CancellationTokenSource();
-                RunProgressBar.Value = 0; RunProgressText.Text = "0%";
-                var progress = new Progress<(string Status, int Percent)>(pr =>
-                {
-                    RunProgressBar.Value = pr.Percent;
-                    RunProgressText.Text = $"{pr.Percent}%";
-                    SystemStatusText.Text = $"🟢 {pr.Status} ({pr.Percent}%)";
-                });
-
-                var full = await _api.GetPipelineAsync(p.id);
-                if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
-
-                RunPipelineResult runResult;
-                try
-                {
-                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    AddInfoNotification("בוטל", "המשתמש ביטל את הריצה.");
-                    UpdateSystemStatus("הריצה בוטלה", false);
-                    return;
-                }
-
-                AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
-                UpdateSystemStatus("המערכת פועלת תקין", true);
-
-                if (!string.IsNullOrWhiteSpace(runResult?.TargetPath))
-                {
-                    try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{runResult.TargetPath}\""); }
-                    catch (Exception ex) { AddErrorNotification("פתיחת תיקיה נכשלה", runResult.TargetPath, ex.Message); }
-                }
-
-                _hasLastRunReport = true;
-                SetPhase(UiPhase.Completed);
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בהרצת פייפליין", "לא ניתן להריץ את הפייפליין שנבחר", ex.Message);
-                UpdateSystemStatus("שגיאה במערכת", false);
-
-                // חזרה לסטייט הגיוני אחרי כישלון
-                SetPhase(_hasCompatibleConfig ? UiPhase.ConfigLoadedCompatible :
-                         _hasFile ? UiPhase.FileSelected : UiPhase.Idle);
-            }
-        }
-
-        private async void RunPipeline_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(FilePathTextBox!.Text) || !File.Exists(FilePathTextBox.Text))
-                {
-                    AddWarningNotification("קובץ חסר", "יש לבחור קובץ מקור קיים לפני הרצה");
-                    return;
-                }
-
-                // בונים קונפיג כרגיל
-                var cfg = _loadedConfig ?? BuildPipelineConfig();
-                if (cfg?.Source == null || cfg.Target == null)
-                {
-                    AddErrorNotification("שגיאת קונפיגורציה", "לא ניתן לבנות קונפיגורציה תקינה");
-                    SetPhase(_hasFile ? UiPhase.FileSelected : UiPhase.Idle);
-                    return;
-                }
-                cfg.Source.Path = FilePathTextBox.Text;
-                EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
-
-                // UI → Running
-                SetPhase(UiPhase.Running);
-                UpdateSystemStatus("מעבד נתונים…", true);
-                RunProgressBar.Value = 0;
-                RunProgressText.Text = "0%";
-                _runCts = new CancellationTokenSource();
-
-                var progress = new Progress<(string Status, int Percent)>(p =>
-                {
-                    RunProgressBar.Value = p.Percent;
-                    RunProgressText.Text = $"{p.Percent}%";
-                    SystemStatusText.Text = $"🟢 {p.Status} ({p.Percent}%)";
-                });
-
-                RunPipelineResult result;
-
-                try
-                {
-                    // ניסיון לרוץ במודל Jobs (Start→Progress→Result)
-                    result = await _api.RunWithProgressAsync(cfg, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    AddInfoNotification("בוטל", "המשתמש ביטל את הריצה.");
-                    UpdateSystemStatus("הריצה בוטלה", false);
-                    return;
-                }
-                catch
-                {
-                    // נפילה חכמה ל-Ad-hoc (מעלה את הקובץ) אם השרת לא נגיש לקובץ בנתיב המקומי
-                    AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (העלאת קובץ).");
-                    result = await _api.RunAdHocPipelineAsync(
-                        filePath: FilePathTextBox.Text,
-                        config: cfg,
-                        report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false },
-                        ct: _runCts.Token
-                    );
-                }
-
-                AddSuccessNotification("Pipeline הושלם!", result.message);
-
-                //_hasLastRunReport = !string.IsNullOrWhiteSpace(htmlPath) || !string.IsNullOrWhiteSpace(pdfPath);
-
-                SetPhase(UiPhase.Completed);
-
-                if (!string.IsNullOrWhiteSpace(result.TargetPath))
-                {
-                    try
-                    {
-                        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{result.TargetPath}\"");
-                        AddInfoNotification("קובץ נוצר", $"הקובץ נוצר ב:\n{result.TargetPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        AddWarningNotification("קובץ נוצר", $"הקובץ נוצר אך לא הצלחתי לפתוח את התיקיה.\n{result.TargetPath}\n\n{ex.Message}");
-                    }
-                }
-
-                UpdateSystemStatus("המערכת פועלת תקין", true);
-                _hasLastRunReport = true;
-                SetPhase(UiPhase.Completed);
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בהרצת Pipeline", ex.Message, ex.StackTrace);
-                UpdateSystemStatus("שגיאה במערכת", false);
-                SetPhase(_hasCompatibleConfig ? UiPhase.ConfigLoadedCompatible : _hasFile ? UiPhase.FileSelected : UiPhase.Idle);
-            }
-            finally
-            {
-                _runCts?.Dispose();
-                _runCts = null;
-                if (RunProgressBar != null) RunProgressBar.Value = 0;
-                if (RunProgressText != null) RunProgressText.Text = "0%";
-            }
-        }
-
-
-        private PipelineConfig? BuildPipelineConfig()
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(FilePathTextBox!.Text))
-                    return null;
-
-                var processors = new List<ProcessorConfig>();
-
-                var globalOperations = new List<Dictionary<string, object>>();
-
-                if (RemoveEmptyRowsCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_empty_rows" });
-                
-                if (RemoveDuplicatesCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_duplicates" });
-
-                if (StripWhitespaceCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "strip_whitespace" });
-
-                var cleaningOps = new List<Dictionary<string, object>>();
-                var transformOps = new List<Dictionary<string, object>>();
-                var aggregationOps = new List<Dictionary<string, object>>();
-                var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
-                    "replace_empty_values","replace_null_values",
-                    "remove_empty_values","remove_null_values",
-                    "to_uppercase","to_lowercase","remove_special_characters",
-                    "set_numeric_range","set_date_format","remove_invalid_dates","remove_invalid_identifier",
-                    "validate_email_format","validate_positive_number","validate_not_empty",
-                    "validate_types","validate_text_length","validate_date_format","validate_date",
-                    "validate_numeric_range","required_fields"
-                };
-
-                foreach (var kvp in _columnSettings)
-                {
-                    var columnName = kvp.Key;
-                    var settings = kvp.Value;
-
-                    foreach (var operation in settings.Operations)
-                    {
-                        var opDict = new Dictionary<string, object>
-                        {
-                            ["action"] = operation
-                        };
-
-                        // Prefer backend-compatible keys for Cleaner operations
-                        if (string.Equals(operation, "replace_empty_values", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "replace_null_values", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "set_numeric_range", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "set_date_format", StringComparison.OrdinalIgnoreCase))
-                        {
-                            opDict["field"] = columnName;
-                        }
-
-                        if (string.Equals(operation, "set_numeric_range", StringComparison.OrdinalIgnoreCase) &&
-                            settings.NumericRange is not null)
-                        {
-                            // שליחת גבולות רק אם קיימים
-                            if (settings.NumericRange.Min.HasValue)
-                                opDict["min_value"] = settings.NumericRange.Min.Value;
-                            if (settings.NumericRange.Max.HasValue)
-                                opDict["max_value"] = settings.NumericRange.Max.Value;
-
-                            // פעולה בחריגה
-                            opDict["action_on_violation"] = string.IsNullOrWhiteSpace(settings.NumericRange.ActionOnViolation)
-                                ? "remove" : settings.NumericRange.ActionOnViolation;
-
-                            if (string.Equals(settings.NumericRange.ActionOnViolation, "replace", StringComparison.OrdinalIgnoreCase)
-                                && settings.NumericRange.ReplacementValue.HasValue)
-                            {
-                                opDict["replacement_value"] = settings.NumericRange.ReplacementValue.Value;
-                            }
-                        }
-
-                        if (string.Equals(operation, "set_date_format", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var fmt = settings.DateFormatApply?.TargetFormat;
-
-                            opDict["input_formats"] = new[]
-                            {
-                                // 4 ספרות שנה – Day-First בעדיפות
-                                "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",
-                                "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y",
-                                "%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d.%m.%Y %H:%M:%S",
-                                "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S",
-                                // 2 ספרות שנה – Day-First בעדיפות
-                                "%d-%m-%y", "%d/%m/%y", "%d.%m.%y",
-                                "%y-%m-%d", "%y/%m/%d", "%m/%d/%y",
-                                "%d-%m-%y %H:%M:%S", "%d/%m/%y %H:%M:%S", "%y-%m-%d %H:%M:%S",
-                            };
-
-                            // העדפה מ-UI אם הוגדרה; אחרת – אם היעד CSV נכפה מחרוזת כדי לשמר את הפורמט
-                            var targetType = GetSelectedTargetType();
-                            if (!string.IsNullOrWhiteSpace(settings.DateFormatApply?.OutputAs))
-                                opDict["output_as"] = settings.DateFormatApply.OutputAs!;
-                            else if (string.Equals(targetType, "csv", StringComparison.OrdinalIgnoreCase))
-                                opDict["output_as"] = "string";
-
-                            if (!string.IsNullOrWhiteSpace(fmt))
-                                opDict["target_format"] = fmt;
-                            else
-                                opDict["target_format"] = "%Y-%m-%d";
-
-                            // מה לעשות כשלא מצליחים לפרסר תאריך
-                            opDict["action_on_violation"] = "warn";
-                        }
-
-                        if (string.Equals(operation, "remove_invalid_dates", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var s = settings.InvalidDateRemoval;
-
-                            opDict["field"] = columnName;
-                            opDict["action"] = "remove_invalid_dates";
-
-                            // אותם input_formats כמו ב-set_date_format
-                            opDict["input_formats"] = new[]
-                            {
-                                "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",
-                                "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y",
-                                "%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%d.%m.%Y %H:%M:%S",
-                                "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S",
-                                "%d-%m-%y", "%d/%m/%y", "%d.%m.%y",
-                                "%y-%m-%d", "%y/%m/%d", "%m/%d/%y",
-                                "%d-%m-%y %H:%M:%S", "%d/%m/%y %H:%M:%S", "%y-%m-%d %H:%M:%S",
-                            };
-
-                            if (s != null)
-                            {
-                                if (s.MinYear.HasValue) opDict["min_year"] = s.MinYear.Value;
-                                if (s.MaxYear.HasValue) opDict["max_year"] = s.MaxYear.Value;
-                                if (!string.IsNullOrWhiteSpace(s.MinDateIso)) opDict["min_date"] = s.MinDateIso;
-                                if (!string.IsNullOrWhiteSpace(s.MaxDateIso)) opDict["max_date"] = s.MaxDateIso;
-
-                                opDict["empty_action"] = string.IsNullOrWhiteSpace(s.EmptyAction) ? "remove" : s.EmptyAction;
-                                if (string.Equals(s.EmptyAction, "replace", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(s.EmptyReplacement))
-                                    opDict["empty_replacement"] = s.EmptyReplacement;
-                            }
-
-                            opDict["treat_whitespace_as_empty"] = true;
-
-                            cleaningOps.Add(opDict);
-                            continue;
-                        }
-
-                        if (string.Equals(operation, "replace_empty_values", StringComparison.OrdinalIgnoreCase) &&
-                            settings.ReplaceEmpty is not null)
-                        {
-                            if (!string.IsNullOrWhiteSpace(settings.ReplaceEmpty.Value))
-                                opDict["replacement_value"] = settings.ReplaceEmpty.Value!;
-
-                            // נשלח תמיד לשרת (עם ברירות מחדל בצד השרת לתאימות)
-                            opDict["expected_type"] = string.IsNullOrWhiteSpace(settings.InferredType) ? "string" : settings.InferredType.ToLowerInvariant();
-                            opDict["max_length"] = settings.ReplaceEmpty.MaxLength <= 0 ? 255 : settings.ReplaceEmpty.MaxLength;
-                        }
-
-                        if (string.Equals(operation, "replace_null_values", StringComparison.OrdinalIgnoreCase) &&
-                            settings.ReplaceNull is not null)
-                        {
-                            if (!string.IsNullOrWhiteSpace(settings.ReplaceNull.Value))
-                                opDict["replacement_value"] = settings.ReplaceNull.Value!;
-
-                            opDict["expected_type"] = string.IsNullOrWhiteSpace(settings.InferredType) ? "string" : settings.InferredType.ToLowerInvariant();
-                            opDict["max_length"] = settings.ReplaceNull.MaxLength <= 0 ? 255 : settings.ReplaceNull.MaxLength;
-
-                            opDict["null_definitions"] = new[] { "null", "n/a", "none" };
-                        }
-
-                        if (string.Equals(operation, "remove_invalid_identifier", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var s = settings.IdentifierValidation;
-                            if (s != null)
-                            {
-                                opDict["field"] = columnName;
-                                opDict["action"] = "remove_invalid_identifier";
-                                opDict["id_type"] = string.IsNullOrWhiteSpace(s.IdType) ? "numeric" : s.IdType;
-                                opDict["treat_whitespace_as_empty"] = s.TreatWhitespaceAsEmpty;
-
-                                opDict["empty_action"] = string.IsNullOrWhiteSpace(s.EmptyAction) ? "remove" : s.EmptyAction;
-                                if (string.Equals(s.EmptyAction, "replace", StringComparison.OrdinalIgnoreCase)
-                                    && !string.IsNullOrWhiteSpace(s.EmptyReplacement))
-                                {
-                                    opDict["empty_replacement"] = s.EmptyReplacement;
-                                }
-
-                                // תתי-אובייקטים לפי סוג
-                                if (s.IdType == "numeric" && s.Numeric != null)
-                                {
-                                    opDict["numeric"] = new Dictionary<string, object?>
-                                    {
-                                        ["integer_only"] = s.Numeric.IntegerOnly,
-                                        ["allow_leading_zeros"] = s.Numeric.AllowLeadingZeros,
-                                        ["allow_negative"] = s.Numeric.AllowNegative,
-                                        ["allow_thousand_separators"] = s.Numeric.AllowThousandSeparators,
-                                        ["max_digits"] = s.Numeric.MaxDigits
-                                    };
-                                }
-                                else if (s.IdType == "string" && s.String != null)
-                                {
-                                    opDict["string"] = new Dictionary<string, object?>
-                                    {
-                                        ["min_length"] = s.String.MinLength,
-                                        ["max_length"] = s.String.MaxLength,
-                                        ["disallow_whitespace"] = s.String.DisallowWhitespace,
-                                        ["regex"] = string.IsNullOrWhiteSpace(s.String.Regex) ? null : s.String.Regex
-                                    };
-                                }
-                                else if (s.IdType == "uuid" && s.Uuid != null)
-                                {
-                                    opDict["uuid"] = new Dictionary<string, object?>
-                                    {
-                                        ["accept_hyphenated"] = s.Uuid.AcceptHyphenated,
-                                        ["accept_braced"] = s.Uuid.AcceptBraced,
-                                        ["accept_urn"] = s.Uuid.AcceptUrn
-                                    };
-                                }
-
-                                cleaningOps.Add(opDict);
-                                continue; // המשך ללולאה הבאה
-                            }
-                        }
-
-                        if (string.Equals(operation, "normalize_numeric", StringComparison.OrdinalIgnoreCase))
-                        {
-                            opDict["field"] = columnName;
-
-                            if (settings.NormalizeSettings?.TargetField != null &&
-                                !string.IsNullOrWhiteSpace(settings.NormalizeSettings.TargetField))
-                            {
-                                opDict["target_field"] = settings.NormalizeSettings.TargetField;
-                            }
-                        }
-
-                        if (string.Equals(operation, "rename_field", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var s = settings.RenameSettings;
-                            if (s != null && !string.IsNullOrWhiteSpace(s.NewName))
-                            {
-                                opDict["field"] = columnName;
-                                opDict["action"] = "rename_field";
-                                opDict["old_name"] = columnName;
-                                opDict["new_name"] = s.NewName;
-
-                            }
-                            else
-                            {
-                                continue;
-                            }
-                        }
-
-                        if (string.Equals(operation, "merge_columns", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var s = settings.MergeColumnsSettings;
-                            if (s != null && s.SourceColumns.Count >= 2 && !string.IsNullOrWhiteSpace(s.TargetColumn))
-                            {
-                                opDict["action"] = "merge_columns";
-                                opDict["source_columns"] = s.SourceColumns.ToArray();
-                                opDict["target_column"] = s.TargetColumn;
-                                opDict["separator"] = s.Separator;
-                                opDict["remove_source"] = s.RemoveSourceColumns;
-                                opDict["handle_empty"] = s.EmptyHandling;
-
-                                if (!string.IsNullOrWhiteSpace(s.EmptyReplacement))
-                                {
-                                    opDict["empty_replacement"] = s.EmptyReplacement;
-                                }
-                            }
-                            else
-                            {
-                                continue;
-                            }
-                        }
-
-                        if (string.Equals(operation, "split_field", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var s = settings.SplitFieldSettings;
-                            if (s != null && s.TargetFields.Count > 0)
-                            {
-                                opDict["action"] = "split_field";
-                                opDict["source_field"] = columnName;
-                                opDict["split_type"] = s.SplitType;
-
-                                if (s.SplitType == "delimiter")
-                                {
-                                    opDict["delimiter"] = s.Delimiter;
-                                }
-                                else if (s.SplitType == "fixed_length")
-                                {
-                                    opDict["length"] = s.Length;
-                                }
-
-                                opDict["target_fields"] = s.TargetFields.ToArray();
-                                opDict["remove_source"] = s.RemoveSource;
-                            }
-                            else
-                            {
-                                continue; // דלג על הפעולה אם ההגדרות לא תקינות
-                            }
-                        }
-
-                        if (string.Equals(operation, "categorical_encoding", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var config = settings.CategoricalEncoding;
-                            if (config != null && config.Mapping.Count > 0)
-                            {
-                                opDict["action"] = "categorical_encoding";
-                                opDict["field"] = columnName;
-                                opDict["mapping"] = config.Mapping;
-                                opDict["replace_original"] = config.ReplaceOriginal;
-                                opDict["delete_original"] = config.DeleteOriginal;
-                                opDict["default_value"] = config.DefaultValue;
-
-                                if (!config.ReplaceOriginal && !string.IsNullOrEmpty(config.TargetField))
-                                {
-                                    opDict["target_field"] = config.TargetField;
-                                }
-
-                                transformOps.Add(opDict);
-                                continue; // המשך ללולאה הבאה
-                            }
-                            else
-                            {
-                                // אם אין קונפיגורציה תקינה, דלג על הפעולה
-                                continue;
-                            }
-                        }
-
-                        if (string.Equals(operation, "strip_whitespace", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "to_uppercase", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "to_lowercase", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "remove_special_characters", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "remove_empty_values", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(operation, "remove_null_values", StringComparison.OrdinalIgnoreCase))
-                        {
-                            opDict["fields"] = new[] { columnName };
-                        }
-
-                        else if (!opDict.ContainsKey("field"))
-                        {
-                            opDict["column"] = columnName;
-                        }
-
-                        if (operation.StartsWith("remove_") || operation.StartsWith("replace_")
-                            || operation == "strip_whitespace"
-                            || operation == "set_numeric_range"
-                            || operation == "set_date_format"
-                            || operation == "to_uppercase"
-                            || operation == "to_lowercase")
-                        {
-                            cleaningOps.Add(opDict);
-                        }
-                        else if (operation == "cast_type" ||
-                                operation == "normalize_numeric" || operation == "rename_field" ||
-                                operation == "merge_columns" || operation == "split_field")
-                        {
-                            transformOps.Add(opDict);
-                        }
-
-                        else if (operation.StartsWith("validate_") || operation == "required_fields")
-                        {
-
-                            if (operation == "validate_date_format" && settings.DateValidationSettings != null)
-                            {
-                                opDict["action"] = "validate_date";
-                                opDict["field"] = columnName;
-
-                                opDict["input_formats"] = new[] {
-                                    "%d-%m-%Y",
-                                    "%d/%m/%Y",
-                                    "%Y-%m-%d",
-                                    "%Y/%m/%d",
-                                    "%m/%d/%Y",
-                                    "%m-%d-%Y"
-                                };
-                                opDict["target_format"] = settings.DateValidationSettings.DateFormat;
-
-                                if (settings.DateValidationSettings.Action == "replace_with_date")
-                                {
-                                    opDict["on_fail"] = "replace";
-                                    if (settings.DateValidationSettings.ReplacementDate.HasValue)
-                                    {
-                                        opDict["replace_with"] = settings.DateValidationSettings.ReplacementDate.Value.ToString(settings.DateValidationSettings.DateFormat);
-                                    }
-                                }
-                                else
-                                {
-                                    opDict["on_fail"] = "drop_row";
-                                }
-
-                                opDict.Remove("column");
-                            }
-                        }
-                        else if (operation == "sum" || operation == "average" ||
-                                operation == "min" || operation == "max" || operation == "median"
-                                || operation == "std" || operation == "variance" || operation == "range"
-                                || operation == "count_valid" || operation == "count_distinct" || operation == "most_common")
-                        {
-                            aggregationOps.Add(opDict);
-                        }
-                    }
-                }
-
-                if (globalOperations.Count > 0 || cleaningOps.Count > 0)
-                {
-                    // סדר עדיפויות לפעולות ניקוי (קטנות ← קודם)
-                    var priority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["remove_invalid_dates"] = 10,
-                        ["remove_empty_values"] = 20,
-                        ["remove_null_values"] = 30,
-                        ["strip_whitespace"] = 40,
-                        ["replace_empty_values"] = 50,
-                        ["replace_null_values"] = 60,
-                        ["remove_invalid_identifier"] = 65,
-                        ["set_numeric_range"] = 70,
-                        ["remove_duplicates"] = 80,
-                        ["set_date_format"] = 90,
-                        // שאר הפעולות יקבלו 100
-                    };
-
-                    cleaningOps = cleaningOps
-                        .OrderBy(op =>
-                        {
-                            var act = (op.TryGetValue("action", out var a) ? a?.ToString() : null) ?? "";
-                            return priority.TryGetValue(act, out var p) ? p : 100;
-                        })
-                        .ToList();
-
-                    var allCleaningOps = globalOperations.Concat(cleaningOps).ToList();
-
-                    processors.Add(new ProcessorConfig
-                    {
-                        Type = "cleaner",
-                        Config = new Dictionary<string, object> { ["operations"] = allCleaningOps }
-                    });
-                }
-
-                if (transformOps.Count > 0)
-                {
-                    processors.Add(new ProcessorConfig
-                    {
-                        Type = "transformer",
-                        Config = new Dictionary<string, object> { ["operations"] = transformOps }
-                    });
-                }
-
-                if (aggregationOps.Count > 0)
-                {
-                    processors.Add(new ProcessorConfig
-                    {
-                        Type = "aggregator",
-                        Config = new Dictionary<string, object> { ["operations"] = aggregationOps }
-                    });
-                }
-
-                if (processors.Count == 0)
-                {
-                    processors.Add(new ProcessorConfig
-                    {
-                        Type = "cleaner",
-                        Config = new Dictionary<string, object>
-                        {
-                            ["operations"] = new[]
-                            {
-                                new Dictionary<string, object> { ["action"] = "remove_empty_rows" },
-                                new Dictionary<string, object> { ["action"] = "strip_whitespace" }
-                            }
-                        }
-                    });
-                }
-
-                var fileExtension = Path.GetExtension(FilePathTextBox.Text).ToLower();
-                var sourceType = fileExtension switch
-                {
-                    ".csv" => "csv",
-                    ".json" => "json",
-                    ".xlsx" or ".xls" => "excel",
-                    ".xml" => "xml",
-                    _ => "csv"
-                };
-
-                var baseName = Path.GetFileNameWithoutExtension(FilePathTextBox.Text);
-
-                // לפי בחירת המשתמש
-                var selectedTargetType = GetSelectedTargetType();
-                var targetExt = ExtForTarget(selectedTargetType);
-
-                var outputFileName = $"{baseName}_processed.{targetExt}";
-                try { Directory.CreateDirectory(OUTPUT_DIR); } catch { }
-                var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
-
-                // הוסף בסוף המתודה BuildPipelineConfig, לפני ה-return:
-                try
-                {
-                    var debugJson = JsonConvert.SerializeObject(new { processors }, Formatting.Indented);
-                    AddInfoNotification("DEBUG - קונפיגורציה נשלחת", debugJson);
-                }
-                catch { }
-
-                var built = new PipelineConfig
-                {
-                    Source = new SourceConfig
-                    {
-                        Type = sourceType,
-                        Path = FilePathTextBox.Text
-                    },
-                    Processors = processors.ToArray(),
-                    Target = new TargetConfig
-                    {
-                        Type = selectedTargetType,
-                        Path = absoluteTargetPath
-                    }
-                };
-
-                return built;
-
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בבניית קונפיגורציה", ex.Message);
-                return null;
-            }
-        }
-
-        private void EnsureSafeTargetPath(PipelineConfig cfg, string dataFilePath)
-        {
-            Directory.CreateDirectory(OUTPUT_DIR);
-
-            var baseName = string.IsNullOrWhiteSpace(dataFilePath)
-                ? "output"
-                : Path.GetFileNameWithoutExtension(dataFilePath);
-
-            // לפי בחירת המשתמש
-            var selectedTargetType = GetSelectedTargetType();
-            var targetExt = ExtForTarget(selectedTargetType);
-
-            var defaultType = selectedTargetType;
-            var defaultPath = Path.Combine(OUTPUT_DIR, $"{baseName}_processed.{targetExt}");
-
-            if (cfg.Target == null)
-            {
-                cfg.Target = new TargetConfig
-                {
-                    Type = defaultType,
-                    Path = defaultPath
-                };
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(cfg.Target.Type))
-                cfg.Target.Type = defaultType;
-
-            if (string.IsNullOrWhiteSpace(cfg.Target.Path))
-                cfg.Target.Path = defaultPath;
-
-            var effectiveType = string.IsNullOrWhiteSpace(cfg.Target.Type) ? selectedTargetType : cfg.Target.Type;
-            var desiredExt = "." + ExtForTarget(effectiveType.ToLowerInvariant());
-
-            if (!string.IsNullOrWhiteSpace(cfg.Target.Path))
-            {
-                var currentExt = Path.GetExtension(cfg.Target.Path);
-                if (!string.Equals(currentExt, desiredExt, StringComparison.OrdinalIgnoreCase))
-                    cfg.Target.Path = Path.ChangeExtension(cfg.Target.Path, desiredExt);
-            }
-        }
-
-        private bool TryReadConfigFromJson(string filePath, out PipelineConfig? cfg, out string? error)
-        {
-            try
-            {
-                var json = File.ReadAllText(filePath, Encoding.UTF8);
-                cfg = Newtonsoft.Json.JsonConvert.DeserializeObject<PipelineConfig>(json);
-                if (cfg == null) { error = "קובץ קונפיג לא תקין."; return false; }
-                if (cfg.Source == null || cfg.Target == null) { error = "חסרים source/target בקונפיג."; return false; }
-                error = null;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                cfg = null;
-                error = ex.Message;
-                return false;
-            }
-        }
-        
-        private async Task OpenCategoricalEncodingWindow(string fieldName)
-        {
-            try
-            {
-                var filePath = FilePathTextBox.Text?.Trim();
-                if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
-                {
-                    AddWarningNotification("קובץ חסר", 
-                        "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
-                    return;
-                }
-
-                // יצירת חלון קידוד קטגוריאלי
-                var encodingWindow = new CategoricalEncodingWindow(_api, filePath, fieldName)
-                {
-                    Owner = this
-                };
-
-                if (encodingWindow.ShowDialog() == true && encodingWindow.Result != null)
-                {
-                   var winCfg = encodingWindow.Result; // PipeWiseClient.Windows.CategoricalEncodingConfig
-
-                   // Map Windows.CategoricalEncodingConfig -> PipeWiseClient.CategoricalEncodingConfig
-                   var mapped = new CategoricalEncodingConfig
-                   {
-                       Field = winCfg.Field,
-                       Mapping = new Dictionary<string, int>(winCfg.Mapping),
-                       TargetField = winCfg.TargetField,
-                       ReplaceOriginal = winCfg.ReplaceOriginal,
-                       DeleteOriginal = winCfg.DeleteOriginal,
-                       DefaultValue = winCfg.DefaultValue
-                   };
-
-                   // Save mapped config into column settings
-                   var settings = _columnSettings[fieldName];
-                   settings.CategoricalEncoding = mapped;
-
-                   AddSuccessNotification("קידוד קטגוריאלי",
-                       $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
-               }
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בקידוד קטגוריאלי", 
-                    "לא ניתן לפתוח חלון קידוד קטגוריאלי", ex.Message);
-            }
-        }
-
-        #endregion
-    }
-
-    public class DateFormatApplySettings
-    {
-        public string TargetFormat { get; set; } = "%Y-%m-%d";
-        public string? OutputAs { get; set; }
-    }
-
-
-    public class ColumnSettings
-    {
-        public HashSet<string> Operations { get; set; } = new HashSet<string>();
-        public string InferredType { get; set; } = string.Empty;
-        public DateValidationSettings? DateValidationSettings { get; set; }
-        public ReplaceEmptySettings? ReplaceEmpty { get; set; }
-        public ReplaceEmptySettings? ReplaceNull { get; set; }
-        public NumericRangeSettings? NumericRange { get; set; }
-        public DateFormatApplySettings? DateFormatApply { get; set; }
-        public InvalidDateRemovalSettings? InvalidDateRemoval { get; set; }
-        public IdentifierValidationSettings? IdentifierValidation { get; set; }
-        public NormalizeSettings? NormalizeSettings { get; set; }
-        public RenameSettings? RenameSettings { get; set; }
-        public MergeColumnsSettings? MergeColumnsSettings { get; set; }
-        public SplitFieldSettings? SplitFieldSettings { get; set; }
-        public CategoricalEncodingConfig? CategoricalEncoding { get; set; }
-    }
-
-    public class NumericRangeSettings
-    {
-        public double? Min { get; set; }
-        public double? Max { get; set; }
-        public string ActionOnViolation { get; set; } = "remove";
-        public double? ReplacementValue { get; set; }
-    }
-
-    public class ReplaceEmptySettings
-    {
-        public string? Value { get; set; }
-        public int MaxLength { get; set; } = 255;
-    }
-
-    public class DateValidationSettings
-    {
-        public string Action { get; set; } = "remove_row";
-        public DateTime? ReplacementDate { get; set; }
-        public string DateFormat { get; set; } = "dd/MM/yyyy";
-    }
-
-    public class InvalidDateRemovalSettings
-    {
-        public int? MinYear { get; set; }
-        public int? MaxYear { get; set; }
-        public string EmptyAction { get; set; } = "remove"; // remove | replace
-        public string? EmptyReplacement { get; set; }
-        public string? MinDateIso { get; set; }
-        public string? MaxDateIso { get; set; }
-    }
-
-    public class IdentifierValidationSettings
-    {
-        public string IdType { get; set; } = "numeric"; // numeric | string | uuid
-        public bool TreatWhitespaceAsEmpty { get; set; } = true;
-
-        public string EmptyAction { get; set; } = "remove"; // remove | replace
-        public string? EmptyReplacement { get; set; }
-
-        public NumericIdentifierOptions? Numeric { get; set; }
-        public StringIdentifierOptions? String { get; set; }
-        public UuidIdentifierOptions? Uuid { get; set; }
-    }
-
-    public class NumericIdentifierOptions
-    {
-        public bool IntegerOnly { get; set; } = true;
-        public bool AllowLeadingZeros { get; set; } = true;
-        public bool AllowNegative { get; set; } = false;
-        public bool AllowThousandSeparators { get; set; } = false;
-        public int? MaxDigits { get; set; } = 20;
-    }
-
-    public class StringIdentifierOptions
-    {
-        public int MinLength { get; set; } = 1;
-        public int? MaxLength { get; set; } = null;
-        public bool DisallowWhitespace { get; set; } = false;
-        public string? Regex { get; set; } = null;
-    }
-
-    public class UuidIdentifierOptions
-    {
-        public bool AcceptHyphenated { get; set; } = true;
-        public bool AcceptBraced { get; set; } = false;
-        public bool AcceptUrn { get; set; } = false;
-    }
-
-    public class NormalizeSettings
-    {
-        public string? TargetField { get; set; }
-    }
-
-    public class RenameSettings
-    {
-        public string NewName { get; set; } = string.Empty;
-    }
-
-    public class MergeColumnsSettings
-    {
-        public List<string> SourceColumns { get; set; } = new List<string>();
-        public string TargetColumn { get; set; } = string.Empty;
-        public string Separator { get; set; } = " ";
-        public bool RemoveSourceColumns { get; set; } = false;
-        public string EmptyHandling { get; set; } = "skip";
-        public string EmptyReplacement { get; set; } = string.Empty;
-    }
-
-    public class SplitFieldSettings
-    {
-        public string SplitType { get; set; } = "delimiter";
-        public string Delimiter { get; set; } = ",";
-        public int Length { get; set; } = 3;
-        public List<string> TargetFields { get; set; } = new();
-        public bool RemoveSource { get; set; } = true;
-    }
-
-    public class CategoricalEncodingConfig
-    {
-        public string Field { get; set; } = string.Empty;
-        public Dictionary<string, int> Mapping { get; set; } = new();
-        public string? TargetField { get; set; }
-        public bool ReplaceOriginal { get; set; } = true;
-        public bool DeleteOriginal { get; set; } = false;
-        public int DefaultValue { get; set; } = -1;
-    }
-
-    internal static class UIHelpers
-    {
-        public static void Let<T>(this T? obj, Action<T> act) where T : class
-        {
-            if (obj is not null) act(obj);
-        }
-    }
-    
-}
