@@ -1,3 +1,5 @@
+// PipeWise_Client/MainWindow/Parts/MainWindow.Notifications.cs
+
 using System;
 using System.Windows;
 using System.Windows.Controls;

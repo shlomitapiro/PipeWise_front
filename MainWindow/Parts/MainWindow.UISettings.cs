@@ -1,3 +1,5 @@
+// PipeWise_Client/MainWindow/Parts/MainWindow.UISettings.cs
+
 using System;
 using System.IO;
 using System.Linq;
@@ -181,12 +183,14 @@ namespace PipeWiseClient
                         }
                     }
                 }
+                #if DEBUG
                 if (profileResult?.Columns != null)
                 {
                     var debugInfo = string.Join("\n", profileResult.Columns.Select(c =>
                         $"{c.Name}: {c.InferredType}"));
                     AddInfoNotification("DEBUG - סוגי עמודות", debugInfo);
                 }
+                #endif
             }
             catch (Exception ex)
             {

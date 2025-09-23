@@ -1,3 +1,5 @@
+// PipeWise_Client/MainWindow/Parts/MainWindow.UIPhase.cs
+
 using System.Windows;
 using System.Windows.Controls;
 using PipeWiseClient.Helpers;
@@ -29,6 +31,8 @@ namespace PipeWiseClient
         }
 
         private Button? Btn(string name) => FindName(name) as Button;
+
+        private UiPhase _phase = UiPhase.Idle;
 
         private void UpdateUiByPhase()
         {

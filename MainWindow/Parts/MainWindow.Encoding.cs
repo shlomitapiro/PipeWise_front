@@ -1,3 +1,5 @@
+// PipeWise_Client/MainWindow/Parts/MainWindow.Encoding.cs
+
 using System;
 using System.Collections.Generic;
 using System.IO;

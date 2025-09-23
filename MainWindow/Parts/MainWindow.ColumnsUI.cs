@@ -1,4 +1,5 @@
-#if false
+// PipeWise_Client/MainWindow/Parts/MainWindow.ColumnsUI.cs
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -40,13 +41,11 @@ namespace PipeWiseClient
                         $"גודל: {fileInfo.Length:N0} bytes\nנתיב: {dialog.FileName}"
                     );
 
-                    // בחירת קובץ חדש מנטרלת קונפיג טעון קודם (אם היה)
                     _loadedConfig = null;
                     _hasCompatibleConfig = false;
                     _hasLastRunReport = false;
 
                     await LoadFileColumns(dialog.FileName);
-
                     SetPhase(UiPhase.FileSelected);
                 }
             }
@@ -136,7 +135,6 @@ namespace PipeWiseClient
                 
                 _columnNames.Clear();
                 
-                // טיפול בarray של objects
                 if (jsonData is Newtonsoft.Json.Linq.JArray jsonArray && jsonArray.Count > 0)
                 {
                     if (jsonArray[0] is Newtonsoft.Json.Linq.JObject firstObj)
@@ -144,10 +142,8 @@ namespace PipeWiseClient
                         _columnNames = firstObj.Properties().Select(p => p.Name).ToList();
                     }
                 }
-                // טיפול בobject יחיד
                 else if (jsonData is Newtonsoft.Json.Linq.JObject jsonObj)
                 {
-                    // אם זה object שמכיל arrays, נסה למצוא array ראשון
                     var firstArray = jsonObj.Properties()
                         .Select(p => p.Value)
                         .OfType<Newtonsoft.Json.Linq.JArray>()
@@ -159,7 +155,6 @@ namespace PipeWiseClient
                     }
                     else
                     {
-                        // אחרת קח את השדות של הobject עצמו
                         _columnNames = jsonObj.Properties().Select(p => p.Name).ToList();
                     }
                 }
@@ -182,7 +177,6 @@ namespace PipeWiseClient
             {
                 var doc = System.Xml.Linq.XDocument.Load(filePath);
                 
-                // חפש את הרקורד הראשון שיש לו elements
                 var firstRecord = doc.Descendants()
                     .Where(e => e.HasElements)
                     .FirstOrDefault();
@@ -196,7 +190,6 @@ namespace PipeWiseClient
                 }
                 else
                 {
-                    // אם לא נמצא רקורד עם elements, נסה לקחת את כל השמות הייחודיים
                     _columnNames = doc.Descendants()
                         .Where(e => !e.HasElements && !string.IsNullOrWhiteSpace(e.Name.LocalName))
                         .Select(e => e.Name.LocalName)
@@ -238,7 +231,7 @@ namespace PipeWiseClient
                 }
             }
             catch { /* ignore */ }
-            return "csv"; // ברירת מחדל תואמת להתנהגות הקודמת
+            return "csv";
         }
 
         private static string ExtForTarget(string targetType)
@@ -262,7 +255,6 @@ namespace PipeWiseClient
 
             var stackPanel = new StackPanel();
 
-            // Panel עליון עם שם העמודה
             var headerPanel = new Grid();
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             headerPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -386,7 +378,7 @@ namespace PipeWiseClient
             return groupBorder;
         }
 
-        private void OperationCheckBox_Changed(object sender, RoutedEventArgs e)
+        private async void OperationCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             if (_isApplyingConfig) return;
 
@@ -409,10 +401,9 @@ namespace PipeWiseClient
                                 var ok = dlg.ShowDialog() == true;
                                 if (!ok)
                                 {
-                                    checkBox.IsChecked = false; // המשתמש ביטל
+                                    checkBox.IsChecked = false;
                                     return;
                                 }
-                                // שמור את ההגדרה לעמודה
                                 var s = _columnSettings[columnName];
                                 s.ReplaceEmpty ??= new ReplaceEmptySettings();
                                 s.ReplaceEmpty.Value = dlg.ReplacementValue;
@@ -433,7 +424,7 @@ namespace PipeWiseClient
                             {
                                 static bool IsTypeSupportedForDateFormat(string? inferred)
                                 {
-                                    if (string.IsNullOrWhiteSpace(inferred)) return true; // fail-open כדי למנוע אזהרות שווא
+                                    if (string.IsNullOrWhiteSpace(inferred)) return true;
                                     var t = inferred.ToLowerInvariant();
                                     return t.Contains("date") || t.Contains("time") || t.Contains("timestamp")
                                         || t.Contains("string") || t.Contains("text") || t.Contains("mixed");
@@ -443,79 +434,62 @@ namespace PipeWiseClient
                                 var looksLikeDate = IsTypeSupportedForDateFormat(t);
                                 var dlg = new Windows.DateFormatDialog(columnName, looksLikeDate) { Owner = this };
 
-                                // פותחים תמיד את הדיאלוג
                                 var ok = dlg.ShowDialog() == true;
 
-                                // אם המשתמש ביטל או לא נבחר פורמט – מבטלים את הסימון
                                 if (!ok || string.IsNullOrWhiteSpace(dlg.SelectedPythonFormat))
                                 {
                                     checkBox.IsChecked = false;
                                     return;
                                 }
 
-                                // שמירת הפורמט שנבחר
                                 var s = _columnSettings[columnName];
                                 s.DateFormatApply ??= new DateFormatApplySettings();
                                 s.DateFormatApply.TargetFormat = dlg.SelectedPythonFormat!;
                             }
-                            // ממשיך עם שאר הפעולות...
+                            else if (operationName == "categorical_encoding")
+                            {
+                                await OpenCategoricalEncodingWindow(columnName);
+
+                                if (_columnSettings[columnName].CategoricalEncoding == null)
+                                {
+                                    checkBox.IsChecked = false;
+                                    return;
+                                }
+                            }
                             
                             _columnSettings[columnName].Operations.Add(operationName);
                         }
                         else
                         {
                             _columnSettings[columnName].Operations.Remove(operationName);
-                            // נקה הגדרות ספציפיות לפעולה...
+                            
+                            if (operationName == "replace_empty_values")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.ReplaceEmpty = null;
+                            }
+
+                            if (operationName == "replace_null_values")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.ReplaceNull = null;
+                            }
+
+                            if (operationName == "set_date_format")
+                            {
+                                var s = _columnSettings[columnName];
+                                s.DateFormatApply = null;
+                            }
+
+                            if (operationName == "categorical_encoding")
+                            {
+                                var settings = _columnSettings[columnName];
+                                settings.CategoricalEncoding = null;
+                            }
                         }
                     }
                 }
             }
         }
-
-        private async Task OpenCategoricalEncodingWindow(string fieldName)
-        {
-            try
-            {
-                var filePath = FilePathTextBox.Text?.Trim();
-                if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
-                {
-                    AddWarningNotification("קובץ חסר", 
-                        "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
-                    return;
-                }
-
-                var encodingWindow = new CategoricalEncodingWindow(_api, filePath, fieldName)
-                {
-                    Owner = this
-                };
-
-                if (encodingWindow.ShowDialog() == true && encodingWindow.Result != null)
-                {
-                   var winCfg = encodingWindow.Result;
-
-                   var mapped = new CategoricalEncodingConfig
-                   {
-                       Field = winCfg.Field,
-                       Mapping = new Dictionary<string, int>(winCfg.Mapping),
-                       TargetField = winCfg.TargetField,
-                       ReplaceOriginal = winCfg.ReplaceOriginal,
-                       DeleteOriginal = winCfg.DeleteOriginal,
-                       DefaultValue = winCfg.DefaultValue
-                   };
-
-                   var settings = _columnSettings[fieldName];
-                   settings.CategoricalEncoding = mapped;
-
-                   AddSuccessNotification("קידוד קטגוריאלי",
-                       $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
-               }
-            }
-            catch (Exception ex)
-            {
-                AddErrorNotification("שגיאה בקידוד קטגוריאלי", 
-                    "לא ניתן לפתוח חלון קידוד קטגוריאלי", ex.Message);
-            }
-        }
     }
 }
-#endif
