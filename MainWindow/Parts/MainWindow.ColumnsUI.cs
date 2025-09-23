@@ -1,4 +1,4 @@
-// PipeWise_Client/MainWindow/Parts/MainWindow.ColumnsUI.cs
+
 
 using System;
 using System.Collections.Generic;
