@@ -246,13 +246,13 @@
                                 
                                 <WrapPanel>
                                     <CheckBox x:Name="RemoveEmptyRowsCheckBox" 
-                                              Content="הסר שורות ריקות" 
+                                              Content="הסרת שורות ריקות" 
                                               Margin="0,0,15,5"/>
                                     <CheckBox x:Name="RemoveDuplicatesCheckBox" 
-                                              Content="הסר כפילויות" 
+                                              Content="הסרת כפילויות" 
                                               Margin="0,0,15,5"/>
                                     <CheckBox x:Name="StripWhitespaceCheckBox" 
-                                              Content="נקה רווחים מיותרים" 
+                                              Content="מחיקת רווחים מיותרים" 
                                               Margin="0,0,15,5"/>
                                 </WrapPanel>
                             </StackPanel>
