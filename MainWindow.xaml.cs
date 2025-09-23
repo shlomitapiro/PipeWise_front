@@ -817,7 +817,7 @@ namespace PipeWiseClient
                                 }
 
                                 transformOps.Add(opDict);
-                                continue; 
+                                continue;
                             }
                             else
                             {
@@ -981,14 +981,14 @@ namespace PipeWiseClient
                 var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
 
                 // DEBUG בלבד – אל תציג למשתמשים ב-Release
-                #if DEBUG
+#if DEBUG
                 try
                 {
                     var debugJson = JsonConvert.SerializeObject(new { processors }, Formatting.Indented);
                     AddInfoNotification("DEBUG - קונפיגורציה נשלחת", debugJson);
                 }
                 catch { }
-                #endif
+#endif
 
                 var built = new PipelineConfig
                 {
@@ -1014,5 +1014,5 @@ namespace PipeWiseClient
                 return null;
             }
         }
-
     }
+}
