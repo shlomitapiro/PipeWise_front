@@ -21,8 +21,6 @@ namespace PipeWiseClient
                         "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
                     return;
                 }
-
-                // פתיחת חלון קידוד קטגוריות
                 var encodingWindow = new CategoricalEncodingWindow(_api, filePath, fieldName)
                 {
                     Owner = this
@@ -30,9 +28,8 @@ namespace PipeWiseClient
 
                 if (encodingWindow.ShowDialog() == true && encodingWindow.Result != null)
                 {
-                   var winCfg = encodingWindow.Result; // PipeWiseClient.Windows.CategoricalEncodingConfig
+                   var winCfg = encodingWindow.Result;
 
-                   // Map Windows.CategoricalEncodingConfig -> PipeWiseClient.Models.CategoricalEncodingConfig
                    var mapped = new PipeWiseClient.Models.CategoricalEncodingConfig
                    {
                        Field = winCfg.Field,
@@ -43,7 +40,6 @@ namespace PipeWiseClient
                        DefaultValue = winCfg.DefaultValue
                    };
 
-                   // Save mapped config into column settings
                    var settings = _columnSettings[fieldName];
                    settings.CategoricalEncoding = mapped;
 

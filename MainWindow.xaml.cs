@@ -665,7 +665,10 @@ namespace PipeWiseClient
 
                             opDict["expected_type"] = string.IsNullOrWhiteSpace(settings.InferredType) ? "string" : settings.InferredType.ToLowerInvariant();
                             opDict["max_length"] = settings.ReplaceNull.MaxLength <= 0 ? 255 : settings.ReplaceNull.MaxLength;
-                            opDict["null_definitions"] = new[] { "null", "n/a", "none" };
+                            opDict["null_definitions"] = new[] {
+                                "null", "n/a", "none", "undefined", "undefine",
+                                "NULL", "N/A", "NONE", "UNDEFINED", "UNDEFINE"
+                            };
                         }
 
                         if (string.Equals(operation, "remove_invalid_identifier", StringComparison.OrdinalIgnoreCase))
@@ -818,6 +821,20 @@ namespace PipeWiseClient
 
                                 transformOps.Add(opDict);
                                 continue;
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+
+                        if (string.Equals(operation, "cast_type", StringComparison.OrdinalIgnoreCase))
+                        {
+                            opDict["field"] = columnName;
+
+                            if (settings.CastType != null && !string.IsNullOrWhiteSpace(settings.CastType.ToType))
+                            {
+                                opDict["to_type"] = settings.CastType.ToType; // "int"/"float"/"str"/"bool"
                             }
                             else
                             {

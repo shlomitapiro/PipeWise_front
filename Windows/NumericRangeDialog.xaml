@@ -1,7 +1,7 @@
 <Window x:Class="PipeWiseClient.Windows.NumericRangeDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="הגדרת טווח מספרי" Height="230" Width="460"
+        Title="הגדרת טווח מספרי" Height="230" Width="560"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Background="#FAFAFA"
         FlowDirection="RightToLeft">
   <Grid Margin="16">
