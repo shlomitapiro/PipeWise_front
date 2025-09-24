@@ -1,5 +1,4 @@
-
-
+// PipeWise_Client/MainWindow/Parts/MainWindow.ColumnsUI.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +12,7 @@ using Newtonsoft.Json;
 using OfficeOpenXml;
 using PipeWiseClient.Models;
 using PipeWiseClient.Windows;
+using PipeWiseClient.Helpers;
 
 namespace PipeWiseClient
 {
@@ -132,9 +132,9 @@ namespace PipeWiseClient
             {
                 var jsonText = File.ReadAllText(filePath);
                 var jsonData = JsonConvert.DeserializeObject(jsonText);
-                
+
                 _columnNames.Clear();
-                
+
                 if (jsonData is Newtonsoft.Json.Linq.JArray jsonArray && jsonArray.Count > 0)
                 {
                     if (jsonArray[0] is Newtonsoft.Json.Linq.JObject firstObj)
@@ -148,7 +148,7 @@ namespace PipeWiseClient
                         .Select(p => p.Value)
                         .OfType<Newtonsoft.Json.Linq.JArray>()
                         .FirstOrDefault();
-                        
+
                     if (firstArray?.Count > 0 && firstArray[0] is Newtonsoft.Json.Linq.JObject firstRecord)
                     {
                         _columnNames = firstRecord.Properties().Select(p => p.Name).ToList();
@@ -158,7 +158,7 @@ namespace PipeWiseClient
                         _columnNames = jsonObj.Properties().Select(p => p.Name).ToList();
                     }
                 }
-                
+
                 if (_columnNames.Count == 0)
                 {
                     AddWarningNotification("JSON ריק", "לא נמצאו שדות בקובץ JSON");
@@ -173,14 +173,14 @@ namespace PipeWiseClient
 
         private void LoadXmlColumns(string filePath)
         {
-            try 
+            try
             {
                 var doc = System.Xml.Linq.XDocument.Load(filePath);
-                
+
                 var firstRecord = doc.Descendants()
                     .Where(e => e.HasElements)
                     .FirstOrDefault();
-                    
+
                 if (firstRecord != null)
                 {
                     _columnNames = firstRecord.Elements()
@@ -385,111 +385,223 @@ namespace PipeWiseClient
             if (sender is CheckBox checkBox && checkBox.Tag is string tag)
             {
                 var parts = tag.Split(':');
-                if (parts.Length == 2)
+                if (parts.Length != 2) return;
+
+                var columnName = parts[0];
+                var operationName = parts[1];
+
+                if (!_columnSettings.ContainsKey(columnName))
+                    _columnSettings[columnName] = new ColumnSettings { ColumnName = columnName };
+
+                var settings = _columnSettings[columnName];
+
+                if (checkBox.IsChecked == true)
                 {
-                    var columnName = parts[0];
-                    var operationName = parts[1];
-
-                    if (_columnSettings.ContainsKey(columnName))
+                    if (OperationRequiresDialog(operationName))
                     {
-                        if (checkBox.IsChecked == true)
+                        var ok = TryOpenOperationDialog(columnName, operationName);
+                        if (!ok)
                         {
-                            if (operationName == "replace_empty_values")
-                            {
-                                var inferredType = _columnSettings[columnName].InferredType ?? "string";
-                                var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
-                                var ok = dlg.ShowDialog() == true;
-                                if (!ok)
-                                {
-                                    checkBox.IsChecked = false;
-                                    return;
-                                }
-                                var s = _columnSettings[columnName];
-                                s.ReplaceEmpty ??= new ReplaceEmptySettings();
-                                s.ReplaceEmpty.Value = dlg.ReplacementValue;
-                                s.ReplaceEmpty.MaxLength = dlg.MaxLength;
-                            }
-                            else if (operationName == "replace_null_values")
-                            {
-                                var inferredType = _columnSettings[columnName].InferredType ?? "string";
-                                var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
-                                var ok = dlg.ShowDialog() == true;
-                                if (!ok) { checkBox.IsChecked = false; return; }
-                                var s = _columnSettings[columnName];
-                                s.ReplaceNull ??= new ReplaceEmptySettings();
-                                s.ReplaceNull.Value = dlg.ReplacementValue;
-                                s.ReplaceNull.MaxLength = dlg.MaxLength;
-                            }
-                            else if (operationName == "set_date_format")
-                            {
-                                static bool IsTypeSupportedForDateFormat(string? inferred)
-                                {
-                                    if (string.IsNullOrWhiteSpace(inferred)) return true;
-                                    var t = inferred.ToLowerInvariant();
-                                    return t.Contains("date") || t.Contains("time") || t.Contains("timestamp")
-                                        || t.Contains("string") || t.Contains("text") || t.Contains("mixed");
-                                }
-
-                                var t = _columnSettings[columnName].InferredType;
-                                var looksLikeDate = IsTypeSupportedForDateFormat(t);
-                                var dlg = new Windows.DateFormatDialog(columnName, looksLikeDate) { Owner = this };
-
-                                var ok = dlg.ShowDialog() == true;
-
-                                if (!ok || string.IsNullOrWhiteSpace(dlg.SelectedPythonFormat))
-                                {
-                                    checkBox.IsChecked = false;
-                                    return;
-                                }
-
-                                var s = _columnSettings[columnName];
-                                s.DateFormatApply ??= new DateFormatApplySettings();
-                                s.DateFormatApply.TargetFormat = dlg.SelectedPythonFormat!;
-                            }
-                            else if (operationName == "categorical_encoding")
-                            {
-                                await OpenCategoricalEncodingWindow(columnName);
-
-                                if (_columnSettings[columnName].CategoricalEncoding == null)
-                                {
-                                    checkBox.IsChecked = false;
-                                    return;
-                                }
-                            }
-                            
-                            _columnSettings[columnName].Operations.Add(operationName);
+                            checkBox.IsChecked = false;
+                            return;
                         }
-                        else
+                    }
+                    else
+                    {
+                        if (operationName == "replace_empty_values")
                         {
-                            _columnSettings[columnName].Operations.Remove(operationName);
-                            
-                            if (operationName == "replace_empty_values")
+                            var inferredType = settings.InferredType ?? "string";
+                            var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
+                            var ok = dlg.ShowDialog() == true;
+                            if (!ok) { checkBox.IsChecked = false; return; }
+                            settings.ReplaceEmpty ??= new ReplaceEmptySettings();
+                            settings.ReplaceEmpty.Value = dlg.ReplacementValue;
+                            settings.ReplaceEmpty.MaxLength = dlg.MaxLength;
+                        }
+                        else if (operationName == "replace_null_values")
+                        {
+                            var inferredType = settings.InferredType ?? "string";
+                            var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
+                            var ok = dlg.ShowDialog() == true;
+                            if (!ok) { checkBox.IsChecked = false; return; }
+                            settings.ReplaceNull ??= new ReplaceEmptySettings();
+                            settings.ReplaceNull.Value = dlg.ReplacementValue;
+                            settings.ReplaceNull.MaxLength = dlg.MaxLength;
+                        }
+                        else if (operationName == "set_numeric_range")
+                        {
+                            var dlg = new NumericRangeDialog(columnName) { Owner = this };
+                            var ok = dlg.ShowDialog() == true;
+                            if (!ok) { checkBox.IsChecked = false; return; }
+                            settings.NumericRange ??= new NumericRangeSettings();
+                            settings.NumericRange.Min = dlg.MinValue;
+                            settings.NumericRange.Max = dlg.MaxValue;
+                            settings.NumericRange.ActionOnViolation = dlg.ActionOnViolation;
+                            settings.NumericRange.ReplacementValue = dlg.ReplacementValue;
+                        }
+                        else if (operationName == "set_date_format")
+                        {
+                            static bool IsTypeSupportedForDateFormat(string? inferred)
                             {
-                                var settings = _columnSettings[columnName];
-                                settings.ReplaceEmpty = null;
+                                if (string.IsNullOrWhiteSpace(inferred)) return true;
+                                var t = inferred.ToLowerInvariant();
+                                return t.Contains("date") || t.Contains("time") || t.Contains("timestamp")
+                                    || t.Contains("string") || t.Contains("text") || t.Contains("mixed");
                             }
 
-                            if (operationName == "replace_null_values")
+                            var looksLikeDate = IsTypeSupportedForDateFormat(settings.InferredType);
+                            var dlg = new Windows.DateFormatDialog(columnName, looksLikeDate) { Owner = this };
+                            var ok = dlg.ShowDialog() == true;
+                            if (!ok || string.IsNullOrWhiteSpace(dlg.SelectedPythonFormat))
                             {
-                                var settings = _columnSettings[columnName];
-                                settings.ReplaceNull = null;
+                                checkBox.IsChecked = false;
+                                return;
                             }
-
-                            if (operationName == "set_date_format")
+                            settings.DateFormatApply ??= new DateFormatApplySettings();
+                            settings.DateFormatApply.TargetFormat = dlg.SelectedPythonFormat!;
+                        }
+                        else if (operationName == "categorical_encoding")
+                        {
+                            await OpenCategoricalEncodingWindow(columnName);
+                            if (settings.CategoricalEncoding == null)
                             {
-                                var s = _columnSettings[columnName];
-                                s.DateFormatApply = null;
-                            }
-
-                            if (operationName == "categorical_encoding")
-                            {
-                                var settings = _columnSettings[columnName];
-                                settings.CategoricalEncoding = null;
+                                checkBox.IsChecked = false;
+                                return;
                             }
                         }
                     }
+
+                    if (!settings.Operations.Contains(operationName))
+                        settings.Operations.Add(operationName);
+                }
+                else
+                {
+                    settings.Operations.Remove(operationName);
+
+                    if (operationName == "replace_empty_values") settings.ReplaceEmpty = null;
+                    if (operationName == "replace_null_values")  settings.ReplaceNull  = null;
+                    if (operationName == "set_date_format")      settings.DateFormatApply = null;
+
+                    if (operationName == "categorical_encoding") settings.CategoricalEncoding = null;
+                    if (operationName == "rename_field")         settings.RenameSettings = null;
+                    if (operationName == "split_field")          settings.SplitFieldSettings = null;
+                    if (operationName == "merge_columns")        settings.MergeColumnsSettings = null;
+                    if (operationName == "normalize_numeric")    settings.NormalizeSettings = null;
+                    if (operationName == "cast_type")            settings.CastType = null;
                 }
             }
         }
+
+        private bool OperationRequiresDialog(string op) =>
+            op is "categorical_encoding" or "split_field" or "merge_columns"
+            or "rename_field" or "normalize_numeric" or "cast_type";
+
+        private bool TryOpenOperationDialog(string columnName, string op)
+        {
+            if (!_columnSettings.TryGetValue(columnName, out var settings))
+            {
+                settings = new ColumnSettings { ColumnName = columnName };
+                _columnSettings[columnName] = settings;
+            }
+
+            switch (op)
+            {
+                case "categorical_encoding":
+                {
+                    var filePath = FilePathTextBox?.Text ?? string.Empty;
+                    var dlg = new Windows.CategoricalEncodingWindow(_api, columnName, filePath) { Owner = this };
+                    if (dlg.ShowDialog() == true && dlg.Result != null)
+                    {
+                        // dlg.Result (Windows.CategoricalEncodingConfig) -> Models.CategoricalEncodingConfig
+                        settings.CategoricalEncoding = new PipeWiseClient.Models.CategoricalEncodingConfig
+                        {
+                            Mapping = dlg.Result.Mapping != null
+                                ? new Dictionary<string, int>(dlg.Result.Mapping)
+                                : new Dictionary<string, int>(),
+                            ReplaceOriginal = dlg.Result.ReplaceOriginal,
+                            DeleteOriginal = dlg.Result.DeleteOriginal,
+                            DefaultValue = dlg.Result.DefaultValue,
+                            TargetField = dlg.Result.TargetField
+                        };
+                        return true;
+                    }
+                    return false;
+                }
+
+                case "rename_field":
+                {
+                    var dlg = new Windows.RenameColumnDialog(columnName, _columnNames) { Owner = this };
+                    if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.NewName))
+                    {
+                        settings.RenameSettings ??= new RenameSettings();
+                        settings.RenameSettings.NewName = dlg.NewName.Trim();
+                        return true;
+                    }
+                    return false;
+                }
+
+                case "split_field":
+                {
+                    var dlg = new Windows.SplitFieldWindow(columnName) { Owner = this };
+                    if (dlg.ShowDialog() == true && dlg.Result != null)
+                    {
+                        settings.SplitFieldSettings = new PipeWiseClient.Models.SplitFieldSettings
+                        {
+                            SplitType = dlg.Result.SplitType,           // "delimiter" / "fixed_length"
+                            Delimiter = dlg.Result.Delimiter,
+                            Length = dlg.Result.Length,
+                            TargetFields = dlg.Result.TargetFields?.ToList() ?? new List<string>(),
+                            RemoveSource = dlg.Result.RemoveSource
+                        };
+                        return true;
+                    }
+                    return false;
+                }
+
+                case "merge_columns":
+                {
+                    var dlg = new Windows.MergeColumnsDialog(_columnNames, columnName) { Owner = this };
+                    if (dlg.ShowDialog() == true)
+                    {
+                        var sources = new List<string> { columnName };
+                        if (dlg.SelectedColumns != null && dlg.SelectedColumns.Count > 0)
+                            sources.AddRange(dlg.SelectedColumns);
+
+                        settings.MergeColumnsSettings = new PipeWiseClient.Models.MergeColumnsSettings
+                        {
+                            SourceColumns = sources.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                            TargetColumn = dlg.TargetColumn,
+                            Separator = dlg.Separator,
+                            RemoveSourceColumns = dlg.RemoveSourceColumns,
+                            EmptyHandling = dlg.EmptyHandling,
+                            EmptyReplacement = dlg.EmptyReplacement
+                        };
+                        return true;
+                    }
+                    return false;
+                }
+
+
+                case "normalize_numeric":
+                {
+                    settings.NormalizeSettings ??= new NormalizeSettings();
+                    settings.NormalizeSettings.TargetField = $"{columnName}_normalized";
+                    return true;
+                }
+
+                case "cast_type":
+                {
+                    settings.CastType ??= new CastTypeSettings();
+                    settings.CastType.ToType = "str"; // אפשר לשנות ל-"int"/"float"/"bool" לפי הצורך
+                    return true;
+                }
+
+
+                default:
+                    return true;
+            }
+        }
+
+
     }
 }

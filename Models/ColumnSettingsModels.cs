@@ -25,6 +25,8 @@ namespace PipeWiseClient.Models
         public MergeColumnsSettings? MergeColumnsSettings { get; set; }
         public SplitFieldSettings? SplitFieldSettings { get; set; }
         public CategoricalEncodingConfig? CategoricalEncoding { get; set; }
+        public CastTypeSettings? CastType { get; set; }
+        public string? ColumnName { get; set; }
     }
 
     public class NumericRangeSettings
@@ -133,5 +135,11 @@ namespace PipeWiseClient.Models
         public bool DeleteOriginal { get; set; } = false;
         public int DefaultValue { get; set; } = -1;
     }
+
+    public class CastTypeSettings
+    {
+        public string? ToType { get; set; }
+    }
+
 }
 

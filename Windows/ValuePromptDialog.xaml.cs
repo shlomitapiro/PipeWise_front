@@ -93,7 +93,6 @@ namespace PipeWiseClient.Windows
                         break;
                     case "string":
                     default:
-                        // טקסט: בדיקת אורך כבר בוצעה
                         break;
                 }
 
