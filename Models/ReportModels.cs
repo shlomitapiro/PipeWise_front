@@ -1,15 +1,18 @@
 // Models/ReportModels.cs
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 namespace PipeWiseClient.Models
 {
     public class ReportsListResponse
     {
         [JsonProperty("reports")]
+        [JsonPropertyName("reports")]
         public List<ReportInfo> Reports { get; set; } = new();
 
         [JsonProperty("total_count")]
+        [JsonPropertyName("total_count")]
         public int TotalCount { get; set; }
 
         [JsonProperty("message")]
@@ -19,9 +22,11 @@ namespace PipeWiseClient.Models
     public class CleanupResponse
     {
         [JsonProperty("cleanup_result")]
+        [JsonPropertyName("cleanup_result")]
         public CleanupResult? CleanupResult { get; set; }
 
         [JsonProperty("message")]
+        [JsonPropertyName("message")]
         public string Message { get; set; } = "";
     }
 

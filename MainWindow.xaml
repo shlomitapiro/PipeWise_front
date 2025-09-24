@@ -7,7 +7,6 @@
         SnapsToDevicePixels="True">
 
     <Window.Resources>
-        <!-- סגנונות מותאמים אישית -->
         <Style x:Key="ModernButton" TargetType="Button">
             <Setter Property="Background" Value="#4A90E2"/>
             <Setter Property="Foreground" Value="White"/>
@@ -132,7 +131,6 @@
             <RowDefinition Height="1*" MinHeight="150"/>
         </Grid.RowDefinitions>
 
-        <!-- אזור בחירת קובץ -->
         <Border Grid.Row="0" Style="{StaticResource ColumnPanel}" Margin="0,0,0,15">
             <StackPanel>
                 <TextBlock Text="📁 בחירת קובץ מקור" Style="{StaticResource SectionHeader}"/>
@@ -180,10 +178,8 @@
             </StackPanel>
         </Border>
 
-        <!-- מרווח קטן -->
         <Border Grid.Row="1" Background="Transparent" Height="2"/>
 
-        <!-- אזור עמודות ופעולות -->
         <Border Grid.Row="2" Style="{StaticResource ColumnPanel}">
             <Grid>
                 <Grid.RowDefinitions>
@@ -269,19 +265,16 @@
             </Grid>
         </Border>
 
-        <!-- GridSplitter -->
         <GridSplitter Grid.Row="3" 
                       Style="{StaticResource CustomGridSplitter}"
                       ToolTip="גרור כדי לשנות את גודל האזורים"/>
 
-        <!-- מכל תחתון -->
         <Grid Grid.Row="4">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- כפתורי פעולה -->
             <WrapPanel Grid.Row="0"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Top"
@@ -331,8 +324,6 @@
                     FontSize="14"
                     Click="RunPipeline_Click"/>
             </WrapPanel>
-
-            <!-- אזור התראות -->
             <Border Grid.Row="1" 
                     Background="#F8F9FA" 
                     BorderBrush="#DEE2E6" 
@@ -389,7 +380,6 @@
                                                Foreground="#95A5A6"/>
                                 </StackPanel>
                             </StackPanel>
-
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                 <Button x:Name="ClearNotificationsBtn"
                                         Content="🗑️ נקה"
