@@ -175,26 +175,60 @@ namespace PipeWiseClient
         {
             try
             {
-                var doc = System.Xml.Linq.XDocument.Load(filePath);
+                var document = System.Xml.Linq.XDocument.Load(filePath);
+                _columnNames.Clear();
 
-                var firstRecord = doc.Descendants()
-                    .Where(e => e.HasElements)
-                    .FirstOrDefault();
-
-                if (firstRecord != null)
+                // חיפוש תגי רשומה נפוצים
+                var commonRecordTags = new[] { "record", "item", "row", "entry", "data" };
+                
+                foreach (var recordTag in commonRecordTags)
                 {
-                    _columnNames = firstRecord.Elements()
-                        .Select(e => e.Name.LocalName)
-                        .Distinct()
-                        .ToList();
+                    var firstRecord = document.Descendants(recordTag).FirstOrDefault();
+                    if (firstRecord != null)
+                    {
+                        // אוסף שמות שדות מהרשומה הראשונה
+                        _columnNames = firstRecord.Elements()
+                            .Select(e => e.Name.LocalName)
+                            .Distinct()
+                            .ToList();
+                        
+                        // אם מצאנו שדות, נסיים
+                        if (_columnNames.Count > 0)
+                        {
+                            AddInfoNotification("XML נטען", 
+                                $"נמצאו {_columnNames.Count} שדות ברשומה '{recordTag}'");
+                            return;
+                        }
+                    }
                 }
-                else
+                
+                // אם לא מצאנו רשומות עם תגים נפוצים, ננתח את המבנה
+                if (_columnNames.Count == 0)
                 {
-                    _columnNames = doc.Descendants()
-                        .Where(e => !e.HasElements && !string.IsNullOrWhiteSpace(e.Name.LocalName))
-                        .Select(e => e.Name.LocalName)
-                        .Distinct()
+                    var allElements = document.Descendants()
+                        .Where(e => e.HasElements && e.Elements().Any())
                         .ToList();
+                    
+                    if (allElements.Count > 0)
+                    {
+                        // נקח את הרשומה עם הכי הרבה שדות
+                        var bestRecord = allElements
+                            .OrderByDescending(e => e.Elements().Count())
+                            .First();
+                            
+                        _columnNames = bestRecord.Elements()
+                            .Select(e => e.Name.LocalName)
+                            .Distinct()
+                            .ToList();
+                            
+                        AddInfoNotification("XML נותח", 
+                            $"נמצאו {_columnNames.Count} שדות מניתוח מבנה");
+                    }
+                }
+                
+                if (_columnNames.Count == 0)
+                {
+                    AddWarningNotification("XML ריק", "לא נמצאו שדות בקובץ XML");
                 }
             }
             catch (Exception ex)
@@ -504,104 +538,158 @@ namespace PipeWiseClient
                 _columnSettings[columnName] = settings;
             }
 
-            switch (op)
+            try
             {
-                case "categorical_encoding":
+                switch (op)
                 {
-                    var filePath = FilePathTextBox?.Text ?? string.Empty;
-                    var dlg = new Windows.CategoricalEncodingWindow(_api, columnName, filePath) { Owner = this };
-                    if (dlg.ShowDialog() == true && dlg.Result != null)
-                    {
-                        // dlg.Result (Windows.CategoricalEncodingConfig) -> Models.CategoricalEncodingConfig
-                        settings.CategoricalEncoding = new PipeWiseClient.Models.CategoricalEncodingConfig
+                    case "categorical_encoding":
                         {
-                            Mapping = dlg.Result.Mapping != null
-                                ? new Dictionary<string, int>(dlg.Result.Mapping)
-                                : new Dictionary<string, int>(),
-                            ReplaceOriginal = dlg.Result.ReplaceOriginal,
-                            DeleteOriginal = dlg.Result.DeleteOriginal,
-                            DefaultValue = dlg.Result.DefaultValue,
-                            TargetField = dlg.Result.TargetField
-                        };
-                        return true;
-                    }
-                    return false;
-                }
+                            var filePath = FilePathTextBox?.Text?.Trim();
+                            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                            {
+                                AddWarningNotification("קובץ חסר", 
+                                    "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
+                                return false;
+                            }
 
-                case "rename_field":
-                {
-                    var dlg = new Windows.RenameColumnDialog(columnName, _columnNames) { Owner = this };
-                    if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.NewName))
-                    {
-                        settings.RenameSettings ??= new RenameSettings();
-                        settings.RenameSettings.NewName = dlg.NewName.Trim();
-                        return true;
-                    }
-                    return false;
-                }
+                            var dlg = new Windows.CategoricalEncodingWindow(_api, filePath, columnName) { Owner = this };
+                            if (dlg.ShowDialog() == true && dlg.Result != null)
+                            {
+                                settings.CategoricalEncoding = new PipeWiseClient.Models.CategoricalEncodingConfig
+                                {
+                                    Field = dlg.Result.Field,
+                                    Mapping = dlg.Result.Mapping != null
+                                        ? new Dictionary<string, int>(dlg.Result.Mapping)
+                                        : new Dictionary<string, int>(),
+                                    ReplaceOriginal = dlg.Result.ReplaceOriginal,
+                                    DeleteOriginal = dlg.Result.DeleteOriginal,
+                                    DefaultValue = dlg.Result.DefaultValue,
+                                    TargetField = dlg.Result.TargetField
+                                };
 
-                case "split_field":
-                {
-                    var dlg = new Windows.SplitFieldWindow(columnName) { Owner = this };
-                    if (dlg.ShowDialog() == true && dlg.Result != null)
-                    {
-                        settings.SplitFieldSettings = new PipeWiseClient.Models.SplitFieldSettings
+                                AddSuccessNotification("קידוד קטגוריאלי",
+                                    $"קידוד קטגוריאלי הוגדר עבור שדה '{columnName}' עם {settings.CategoricalEncoding.Mapping.Count} ערכים");
+                                return true;
+                            }
+                            return false;
+                        }
+
+                    case "rename_field":
                         {
-                            SplitType = dlg.Result.SplitType,           // "delimiter" / "fixed_length"
-                            Delimiter = dlg.Result.Delimiter,
-                            Length = dlg.Result.Length,
-                            TargetFields = dlg.Result.TargetFields?.ToList() ?? new List<string>(),
-                            RemoveSource = dlg.Result.RemoveSource
-                        };
-                        return true;
-                    }
-                    return false;
-                }
+                            var dlg = new Windows.RenameColumnDialog(columnName, _columnNames) { Owner = this };
+                            if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.NewName))
+                            {
+                                settings.RenameSettings ??= new RenameSettings();
+                                settings.RenameSettings.NewName = dlg.NewName.Trim();
 
-                case "merge_columns":
-                {
-                    var dlg = new Windows.MergeColumnsDialog(_columnNames, columnName) { Owner = this };
-                    if (dlg.ShowDialog() == true)
-                    {
-                        var sources = new List<string> { columnName };
-                        if (dlg.SelectedColumns != null && dlg.SelectedColumns.Count > 0)
-                            sources.AddRange(dlg.SelectedColumns);
+                                AddSuccessNotification("שינוי שם עמודה",
+                                    $"השדה '{columnName}' ישונה ל-'{dlg.NewName}'");
+                                return true;
+                            }
+                            return false;
+                        }
 
-                        settings.MergeColumnsSettings = new PipeWiseClient.Models.MergeColumnsSettings
+                    case "split_field":
                         {
-                            SourceColumns = sources.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                            TargetColumn = dlg.TargetColumn,
-                            Separator = dlg.Separator,
-                            RemoveSourceColumns = dlg.RemoveSourceColumns,
-                            EmptyHandling = dlg.EmptyHandling,
-                            EmptyReplacement = dlg.EmptyReplacement
-                        };
-                        return true;
-                    }
-                    return false;
+                            var dlg = new Windows.SplitFieldWindow(_columnNames.ToList()) { Owner = this };
+                            if (dlg.ShowDialog() == true && dlg.Result != null && dlg.Result.TargetFields != null && dlg.Result.TargetFields.Count > 0)
+                            {
+                                settings.SplitFieldSettings = new PipeWiseClient.Models.SplitFieldSettings
+                                {
+                                    SplitType = dlg.Result.SplitType,
+                                    Delimiter = dlg.Result.Delimiter,
+                                    Length = dlg.Result.Length,
+                                    TargetFields = dlg.Result.TargetFields?.ToList() ?? new List<string>(),
+                                    RemoveSource = dlg.Result.RemoveSource
+                                };
+
+                                var targetFieldsText = string.Join(", ", settings.SplitFieldSettings.TargetFields);
+                                AddSuccessNotification("פיצול שדה",
+                                    $"השדה '{columnName}' יפוצל ל: {targetFieldsText}");
+                                return true;
+                            }
+                            return false;
+                        }
+
+                    case "merge_columns":
+                        {
+                            var dlg = new Windows.MergeColumnsDialog(_columnNames, columnName) { Owner = this };
+                            if (dlg.ShowDialog() == true && dlg.SelectedColumns != null && dlg.SelectedColumns.Count > 0)
+                            {
+                                var sources = new List<string> { columnName };
+                                if (dlg.SelectedColumns != null && dlg.SelectedColumns.Count > 0)
+                                    sources.AddRange(dlg.SelectedColumns);
+
+                                settings.MergeColumnsSettings = new PipeWiseClient.Models.MergeColumnsSettings
+                                {
+                                    SourceColumns = sources.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                                    TargetColumn = dlg.TargetColumn,
+                                    Separator = dlg.Separator,
+                                    RemoveSourceColumns = dlg.RemoveSourceColumns,
+                                    EmptyHandling = dlg.EmptyHandling,
+                                    EmptyReplacement = dlg.EmptyReplacement
+                                };
+
+                                var sourceColumnsText = string.Join(", ", settings.MergeColumnsSettings.SourceColumns);
+                                AddSuccessNotification("מיזוג עמודות",
+                                    $"העמודות {sourceColumnsText} ימוזגו לעמודה '{dlg.TargetColumn}'");
+                                return true;
+                            }
+                            return false;
+                        }
+
+                    case "normalize_numeric":
+                        {
+                            // עבור normalize - יכול להיות דיאלוג פשוט או להשאיר ברירת מחדל
+                            var targetField = InputDialogs.ShowSingleValueDialog(
+                                "נרמול נומרי", 
+                                $"הזן שם לשדה המנורמל של '{columnName}':",
+                                $"{columnName}_normalized");
+                            
+                            if (!string.IsNullOrWhiteSpace(targetField))
+                            {
+                                settings.NormalizeSettings ??= new NormalizeSettings();
+                                settings.NormalizeSettings.TargetField = targetField.Trim();
+
+                                AddSuccessNotification("נרמול נומרי",
+                                    $"השדה '{columnName}' ינורמל לשדה '{targetField}'");
+                                return true;
+                            }
+                            return false;
+                        }
+
+                    case "cast_type":
+                        {
+                            var typeOptions = new[] { "int", "float", "str", "bool" };
+                            var selectedType = InputDialogs.ShowSelectionDialog(
+                                "המרת טיפוס נתונים",
+                                $"בחר טיפוס נתונים עבור השדה '{columnName}':",
+                                typeOptions);
+
+                            if (!string.IsNullOrWhiteSpace(selectedType))
+                            {
+                                settings.CastType ??= new CastTypeSettings();
+                                settings.CastType.ToType = selectedType;
+
+                                AddSuccessNotification("המרת טיפוס",
+                                    $"השדה '{columnName}' יומר לטיפוס '{selectedType}'");
+                                return true;
+                            }
+                            return false;
+                        }
+
+                    default:
+                        AddWarningNotification("פעולה לא נתמכת", 
+                            $"הפעולה '{op}' אינה נתמכת כרגע או אינה דורשת דיאלוג");
+                        return false;
                 }
-
-
-                case "normalize_numeric":
-                {
-                    settings.NormalizeSettings ??= new NormalizeSettings();
-                    settings.NormalizeSettings.TargetField = $"{columnName}_normalized";
-                    return true;
-                }
-
-                case "cast_type":
-                {
-                    settings.CastType ??= new CastTypeSettings();
-                    settings.CastType.ToType = "str"; // אפשר לשנות ל-"int"/"float"/"bool" לפי הצורך
-                    return true;
-                }
-
-
-                default:
-                    return true;
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("שגיאה בפתיחת דיאלוג", 
+                    $"לא ניתן לפתוח דיאלוג עבור הפעולה '{op}'", ex.Message);
+                return false;
             }
         }
-
-
     }
 }
