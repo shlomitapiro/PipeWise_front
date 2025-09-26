@@ -25,13 +25,10 @@ namespace PipeWiseClient.Windows
             TitleText.Text = $"שינוי שם העמודה: {currentName}";
             OldNameBox.Text = currentName;
             
-            // מיקוד בתיבת הטקסט החדשה
             NewNameBox.Focus();
             
-            // עדכון בזמן אמת
             NewNameBox.TextChanged += (s, e) => ValidateInput();
             
-            // התחלה עם כפתור מנוטרל
             OkButton.IsEnabled = false;
         }
 
@@ -56,7 +53,7 @@ namespace PipeWiseClient.Windows
             }
         }
 
-        private (bool IsValid, string ErrorMessage) IsValidColumnName(string name)
+        private (bool IsValid, string ErrorMessage) IsValidColumnName(string? name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 return (false, "");

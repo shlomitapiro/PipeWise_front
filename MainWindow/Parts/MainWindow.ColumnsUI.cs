@@ -88,7 +88,6 @@ namespace PipeWiseClient
                 {
                     await DetectColumnTypes(filePath);
                     ShowColumnsInterface();
-                    AddInfoNotification("עמודות נטענו", $"נטענו {_columnNames.Count} עמודות מהקובץ");
                 }
                 else
                 {
@@ -251,6 +250,35 @@ namespace PipeWiseClient
                 var columnPanel = CreateColumnPanel(columnName);
                 ColumnsPanel.Children.Add(columnPanel);
                 _columnSettings[columnName] = new ColumnSettings();
+            }
+
+            ApplyPendingOperations();
+        }
+
+        private void DebugConfigContent(PipelineConfig cfg)
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(cfg, Formatting.Indented);
+                var preview = json.Length > 500 ? json.Substring(0, 500) + "..." : json;
+                                
+                if (cfg.Processors != null)
+                {
+                    for (int i = 0; i < cfg.Processors.Length; i++)
+                    {
+                        var proc = cfg.Processors[i];
+                        
+                        if (proc.Config.TryGetValue("operations", out var ops))
+                        {
+                            var opsJson = JsonConvert.SerializeObject(ops, Formatting.Indented);
+                            var opsPreview = opsJson.Length > 200 ? opsJson.Substring(0, 200) + "..." : opsJson;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AddErrorNotification("❌ Debug Error", "שגיאה בניתוח קונפיגורציה", ex.Message);
             }
         }
 
@@ -631,8 +659,6 @@ namespace PipeWiseClient
                                 };
 
                                 var sourceColumnsText = string.Join(", ", settings.MergeColumnsSettings.SourceColumns);
-                                AddSuccessNotification("מיזוג עמודות",
-                                    $"העמודות {sourceColumnsText} ימוזגו לעמודה '{dlg.TargetColumn}'");
                                 return true;
                             }
                             return false;
@@ -640,7 +666,6 @@ namespace PipeWiseClient
 
                     case "normalize_numeric":
                         {
-                            // עבור normalize - יכול להיות דיאלוג פשוט או להשאיר ברירת מחדל
                             var targetField = InputDialogs.ShowSingleValueDialog(
                                 "נרמול נומרי", 
                                 $"הזן שם לשדה המנורמל של '{columnName}':",

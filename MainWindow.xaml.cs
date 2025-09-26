@@ -91,8 +91,6 @@ namespace PipeWiseClient
             {
                 _notifications.Clear();
                 RefreshNotificationsDisplay();
-
-                AddSuccessNotification("הצלחה", "כל ההתראות נוקו");
             }
         }
 
@@ -106,13 +104,11 @@ namespace PipeWiseClient
             {
                 NotificationsScrollViewer.Visibility = Visibility.Collapsed;
                 CollapseNotificationsBtn.Content = "📂";
-                AddInfoNotification("ממשק", "אזור ההתראות כווץ");
             }
             else
             {
                 NotificationsScrollViewer.Visibility = Visibility.Visible;
                 CollapseNotificationsBtn.Content = "📦";
-                AddInfoNotification("ממשק", "אזור ההתראות הורחב");
             }
 
             SaveUISettings();
@@ -122,7 +118,6 @@ namespace PipeWiseClient
         {
             try
             {
-                AddInfoNotification("פתיחת דוחות", "פותח חלון הדוחות...");
                 var reportsWindow = new ReportsWindow();
                 reportsWindow.ShowDialog();
             }
@@ -146,6 +141,8 @@ namespace PipeWiseClient
                     return;
 
                 _columnSettings.Clear();
+                _pendingOperationsToApply.Clear();
+
                 FilePathTextBox!.Text = string.Empty;
                 FileInfoTextBlock!.Text = "לא נבחר קובץ";
 
@@ -230,7 +227,7 @@ namespace PipeWiseClient
         }
 
         private async void LoadConfig_Click(object sender, RoutedEventArgs e)
-        {
+        {            
             try
             {
                 if (string.IsNullOrWhiteSpace(FilePathTextBox?.Text) || !File.Exists(FilePathTextBox.Text))
@@ -283,8 +280,12 @@ namespace PipeWiseClient
                     Filter = "JSON Files (*.json)|*.json",
                     Title = "בחר קובץ קונפיגורציה"
                 };
-                if (cfgDlg.ShowDialog() != true) return;
-
+                
+                if (cfgDlg.ShowDialog() != true) 
+                {
+                    return;
+                }
+                
                 if (!TryReadConfigFromJson(cfgDlg.FileName, out var cfg, out var err))
                 {
                     AddErrorNotification("שגיאה בטעינת קונפיג", "לא ניתן לטעון את הקובץ", err);
@@ -317,9 +318,14 @@ namespace PipeWiseClient
                 _loadedConfig = cfg!;
                 NormalizeProcessorConfigs(_loadedConfig);
                 _hasCompatibleConfig = true;
+                
                 AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(cfgDlg.FileName)}");
+                
+                DebugConfigContent(_loadedConfig);
+                
                 await ApplyConfigToUI(_loadedConfig);
-                SetPhase(UiPhase.ConfigLoadedCompatible);
+                
+                SetPhase(UiPhase.ConfigLoadedCompatible);                
             }
             catch (Exception ex)
             {
@@ -357,17 +363,24 @@ namespace PipeWiseClient
             }
         }
 
-        private CheckBox? FindCheckBoxByTag(DependencyObject root, string tag)
+        private CheckBox? FindCheckBoxByTag(DependencyObject? root, string tag)
         {
+            if (root is null) return null;
+
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
             {
                 var child = VisualTreeHelper.GetChild(root, i);
-                if (child is CheckBox cb && cb.Tag is string s && string.Equals(s, tag, StringComparison.OrdinalIgnoreCase))
+
+                if (child is CheckBox cb && cb.Tag is string s &&
+                    string.Equals(s, tag, StringComparison.OrdinalIgnoreCase))
+                {
                     return cb;
+                }
 
                 var inner = FindCheckBoxByTag(child, tag);
                 if (inner != null) return inner;
             }
+
             return null;
         }
 
@@ -396,6 +409,7 @@ namespace PipeWiseClient
                     return;
 
                 EnsureSafeTargetPath(cfg, fp ?? string.Empty);
+                NormalizeProcessorConfigs(cfg);
 
                 var resp = await _api.CreatePipelineAsync(cfg, name: dlg.PipelineName);
 
@@ -432,13 +446,18 @@ namespace PipeWiseClient
                 _runCts = new CancellationTokenSource();
                 var progress = CreateRunProgress();
 
-                var full = await _api.GetPipelineAsync(p.id);
-                if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
-
                 RunPipelineResult runResult;
                 try
                 {
-                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress, TimeSpan.FromMilliseconds(500), _runCts.Token);
+                    var full = await _api.GetPipelineAsync(p.id);
+                    if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
+
+                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress, 
+                                TimeSpan.FromMilliseconds(500), _runCts.Token);
+
+                    if (runResult == null)
+                        throw new InvalidOperationException("Run failed: no result returned from server");
+
                 }
                 catch (OperationCanceledException)
                 {
@@ -446,7 +465,23 @@ namespace PipeWiseClient
                     EndRunUiError("הריצה בוטלה");
                     return;
                 }
+                catch (Exception)
+                {
+                    AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (ללא מעקב התקדמות).");
+                    var full = await _api.GetPipelineAsync(p.id);
+                    if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
+                    var adHocPath = full.pipeline.Source?.Path ?? FilePathTextBox?.Text;
+                    if (string.IsNullOrWhiteSpace(adHocPath))
+                        throw new InvalidOperationException("No source file path available for Ad-hoc run.");
 
+                    runResult = await _api.RunAdHocPipelineAsync(
+                        filePath: adHocPath!,
+                        config: full.pipeline,
+                        report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false },
+                        ct: _runCts.Token
+                    );
+
+                }
                 AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
                 EndRunUiSuccess("המערכת פועלת תקין");
 
@@ -482,6 +517,7 @@ namespace PipeWiseClient
                 }
                 cfg.Source.Path = FilePathTextBox.Text;
                 EnsureSafeTargetPath(cfg, FilePathTextBox.Text);
+                NormalizeProcessorConfigs(cfg);
 
                 BeginRunUi("מעבד נתונים…");
                 _runCts = new CancellationTokenSource();
@@ -675,55 +711,67 @@ namespace PipeWiseClient
                         if (string.Equals(operation, "remove_invalid_identifier", StringComparison.OrdinalIgnoreCase))
                         {
                             var s = settings.IdentifierValidation;
+
+                            var op = new Dictionary<string, object>
+                            {
+                                ["action"] = "remove_invalid_identifier",
+                                ["field"]  = columnName
+                            };
+
                             if (s != null)
                             {
-                                opDict["field"] = columnName;
-                                opDict["action"] = "remove_invalid_identifier";
-                                opDict["id_type"] = string.IsNullOrWhiteSpace(s.IdType) ? "numeric" : s.IdType;
-                                opDict["treat_whitespace_as_empty"] = s.TreatWhitespaceAsEmpty;
-                                opDict["empty_action"] = string.IsNullOrWhiteSpace(s.EmptyAction) ? "remove" : s.EmptyAction;
+                                op["id_type"] = string.IsNullOrWhiteSpace(s.IdType) ? "numeric" : s.IdType;
+                                op["treat_whitespace_as_empty"] = s.TreatWhitespaceAsEmpty;
+                                op["empty_action"] = string.IsNullOrWhiteSpace(s.EmptyAction) ? "remove" : s.EmptyAction;
 
-                                if (string.Equals(s.EmptyAction, "replace", StringComparison.OrdinalIgnoreCase)
-                                    && !string.IsNullOrWhiteSpace(s.EmptyReplacement))
+                                if (string.Equals(s.EmptyAction, "replace", StringComparison.OrdinalIgnoreCase) &&
+                                    !string.IsNullOrWhiteSpace(s.EmptyReplacement))
                                 {
-                                    opDict["empty_replacement"] = s.EmptyReplacement;
+                                    op["empty_replacement"] = s.EmptyReplacement;
                                 }
 
                                 if (s.IdType == "numeric" && s.Numeric != null)
                                 {
-                                    opDict["numeric"] = new Dictionary<string, object?>
+                                    op["numeric"] = new Dictionary<string, object?>
                                     {
-                                        ["integer_only"] = s.Numeric.IntegerOnly,
-                                        ["allow_leading_zeros"] = s.Numeric.AllowLeadingZeros,
-                                        ["allow_negative"] = s.Numeric.AllowNegative,
+                                        ["integer_only"]              = s.Numeric.IntegerOnly,
+                                        ["allow_leading_zeros"]       = s.Numeric.AllowLeadingZeros,
+                                        ["allow_negative"]            = s.Numeric.AllowNegative,
                                         ["allow_thousand_separators"] = s.Numeric.AllowThousandSeparators,
-                                        ["max_digits"] = s.Numeric.MaxDigits
+                                        ["max_digits"]                = s.Numeric.MaxDigits
                                     };
                                 }
                                 else if (s.IdType == "string" && s.String != null)
                                 {
-                                    opDict["string"] = new Dictionary<string, object?>
+                                    op["string"] = new Dictionary<string, object?>
                                     {
-                                        ["min_length"] = s.String.MinLength,
-                                        ["max_length"] = s.String.MaxLength,
+                                        ["min_length"]         = s.String.MinLength,
+                                        ["max_length"]         = s.String.MaxLength,
                                         ["disallow_whitespace"] = s.String.DisallowWhitespace,
-                                        ["regex"] = string.IsNullOrWhiteSpace(s.String.Regex) ? null : s.String.Regex
+                                        ["regex"]              = string.IsNullOrWhiteSpace(s.String.Regex) ? null : s.String.Regex
                                     };
                                 }
                                 else if (s.IdType == "uuid" && s.Uuid != null)
                                 {
-                                    opDict["uuid"] = new Dictionary<string, object?>
+                                    op["uuid"] = new Dictionary<string, object?>
                                     {
                                         ["accept_hyphenated"] = s.Uuid.AcceptHyphenated,
-                                        ["accept_braced"] = s.Uuid.AcceptBraced,
-                                        ["accept_urn"] = s.Uuid.AcceptUrn
+                                        ["accept_braced"]     = s.Uuid.AcceptBraced,
+                                        ["accept_urn"]        = s.Uuid.AcceptUrn
                                     };
                                 }
-
-                                cleaningOps.Add(opDict);
-                                continue;
                             }
+                            else
+                            {
+                                op["id_type"] = "numeric";
+                                op["treat_whitespace_as_empty"] = true;
+                                op["empty_action"] = "remove";
+                            }
+
+                            cleaningOps.Add(op);
+                            continue;
                         }
+
 
                         if (string.Equals(operation, "normalize_numeric", StringComparison.OrdinalIgnoreCase))
                         {
@@ -1007,7 +1055,6 @@ namespace PipeWiseClient
                 try
                 {
                     var debugJson = JsonConvert.SerializeObject(new { processors }, Formatting.Indented);
-                    AddInfoNotification("DEBUG - קונפיגורציה נשלחת", debugJson);
                 }
                 catch { }
 #endif
@@ -1056,6 +1103,34 @@ namespace PipeWiseClient
             }
         }
 
+        private static object? NormalizeAnyJsonNode(object? o)
+        {
+            if (o is Newtonsoft.Json.Linq.JValue jv) return jv.Value;
+            if (o is Newtonsoft.Json.Linq.JObject jo)
+                return jo.Properties().ToDictionary(p => p.Name, p => NormalizeAnyJsonNode(p.Value));
+            if (o is Newtonsoft.Json.Linq.JArray ja)
+                return ja.Select(NormalizeAnyJsonNode).ToList();
+
+            if (o is System.Text.Json.Nodes.JsonValue jsv)
+            {
+                if (jsv.TryGetValue(out string? s)) return s;
+                if (jsv.TryGetValue(out int i)) return i;
+                if (jsv.TryGetValue(out double d)) return d;
+                if (jsv.TryGetValue(out bool b)) return b;
+                return jsv.ToJsonString(); // fallback
+            }
+            if (o is System.Text.Json.Nodes.JsonArray sa)
+                return sa.Select(NormalizeAnyJsonNode).ToList();
+            if (o is System.Text.Json.Nodes.JsonObject so)
+                return so.ToDictionary(kv => kv.Key, kv => NormalizeAnyJsonNode(kv.Value));
+
+            if (o is IEnumerable<object> e) return e.Select(NormalizeAnyJsonNode).ToList();
+            if (o is Dictionary<string, object?> dct)
+                return dct.ToDictionary(k => k.Key, v => NormalizeAnyJsonNode(v.Value));
+
+            return o;
+        }
+
         private static void NormalizeProcessorConfigs(PipelineConfig cfg)
         {
             if (cfg?.Processors == null) return;
@@ -1064,48 +1139,66 @@ namespace PipeWiseClient
             {
                 if (p?.Config == null) continue;
 
-                // אם זה JObject/JArray – המרה למבני .NET "טהורים"
-                if (p.Config is Newtonsoft.Json.Linq.JObject || p.Config is Newtonsoft.Json.Linq.JArray)
+                var normalized = NormalizeAnyJsonNode(p.Config);
+
+                Dictionary<string, object?> dict;
+                if (normalized is Dictionary<string, object?> cfgDict)
                 {
-                    var norm = NormalizeJToken(p.Config);
-                    // מצופה להיות מילון שכולל "operations": List<Dictionary<string, object>>
-                    if (norm is Dictionary<string, object> dict)
-                        p.Config = dict;
+                    dict = new Dictionary<string, object?>(cfgDict, StringComparer.OrdinalIgnoreCase);
+                }
+                else if (normalized is Dictionary<string, object> cfgDictObj)
+                {
+                    dict = cfgDictObj.ToDictionary(kv => kv.Key, kv => (object?)kv.Value, StringComparer.OrdinalIgnoreCase);
+                }
+                else
+                {
+                    continue;
                 }
 
-                // דאג שמפתח "operations" יהיה רשימת אובייקטים (לא מערכים ריקים מוזרים)
-                if (p.Config is Dictionary<string, object> cfgDict &&
-                    cfgDict.TryGetValue("operations", out var ops) && ops != null)
+                if (dict.ContainsKey("Operations") && !dict.ContainsKey("operations"))
                 {
-                    if (ops is Newtonsoft.Json.Linq.JArray)
-                        ops = NormalizeJToken(ops);
+                    dict["operations"] = dict["Operations"];
+                    dict.Remove("Operations");
+                }
 
-                    if (ops is IEnumerable<object> list)
+                if (!dict.TryGetValue("operations", out var opsObj) || opsObj == null)
+                    continue;
+
+                if (opsObj is not IEnumerable<object?> list)
+                    continue;
+
+                var fixedList = new List<Dictionary<string, object?>>();
+
+                foreach (var it in list)
+                {
+                    var item = NormalizeAnyJsonNode(it) as Dictionary<string, object?>;
+                    if (item == null) continue;
+
+                    var nd = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var kv in item)
+                        nd[(kv.Key ?? string.Empty).ToLowerInvariant()] = kv.Value;
+
+                    if (!nd.ContainsKey("field"))
                     {
-                        // כל איבר חייב להיות Dictionary<string, object>
-                        var fixedList = new List<Dictionary<string, object>>();
-                        foreach (var it in list)
-                        {
-                            if (it is Newtonsoft.Json.Linq.JObject || it is Newtonsoft.Json.Linq.JArray)
-                            {
-                                var normIt = NormalizeJToken(it);
-                                if (normIt is Dictionary<string, object> d)
-                                    fixedList.Add(d);
-                            }
-                            else if (it is Dictionary<string, object> d)
-                            {
-                                fixedList.Add(d);
-                            }
-                            else
-                            {
-                                // זרוק איברים לא חוקיים
-                            }
-                        }
-                        cfgDict["operations"] = fixedList;
+                        if (nd.TryGetValue("column", out var col) && col is string cs && !string.IsNullOrWhiteSpace(cs))
+                            nd["field"] = cs;
+                        else if (nd.TryGetValue("source_field", out var sf) && sf is string sfs && !string.IsNullOrWhiteSpace(sfs))
+                            nd["field"] = sfs;
                     }
+
+                    if (!nd.TryGetValue("action", out var act) || string.IsNullOrWhiteSpace(act?.ToString()))
+                        continue;
+
+                    if (nd.TryGetValue("fields", out var fields) && fields is IEnumerable<object?> ef)
+                        nd["fields"] = ef.Select(x => x?.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+
+                    fixedList.Add(nd);
                 }
+
+                dict["operations"] = fixedList;
+                p.Config = dict.ToDictionary(kv => kv.Key, kv => (object)kv.Value!, StringComparer.OrdinalIgnoreCase);
+
             }
         }
-
     }
 }

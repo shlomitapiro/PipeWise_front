@@ -13,6 +13,7 @@ namespace PipeWiseClient
 {
     public partial class MainWindow
     {
+        private List<(string column, string action)> _pendingOperationsToApply = new List<(string, string)>();
         private PipeWiseClient.Models.CompatResult LocalValidateCompatibility(PipelineConfig cfg, string filePath, List<string> detectedColumns)
         {
             var result = new PipeWiseClient.Models.CompatResult();
@@ -118,13 +119,15 @@ namespace PipeWiseClient
 
             return result;
         }
-
-
         private async Task ApplyConfigToUI(PipelineConfig cfg)
         {
             _isApplyingConfig = true;
+
             try
             {
+                _pendingOperationsToApply ??= new List<(string, string)>();
+                _pendingOperationsToApply.Clear();
+
                 var sourcePath = cfg.Source?.Path;
                 if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
                 {
@@ -136,53 +139,100 @@ namespace PipeWiseClient
                     SelectTargetTypeInUi(cfg.Target.Type);
 
                 var globalActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var perColumnOps = new List<(string column, string action)>();
+                var perColumnOps  = new List<(string column, string action)>();
 
                 foreach (var p in cfg.Processors ?? Array.Empty<ProcessorConfig>())
                 {
-                    if (!p.Config.TryGetValue("operations", out var opsObj) || opsObj == null) continue;
+                    if (p?.Config == null) continue;
 
+                    object? opsObj = null;
+                    if (!p.Config.TryGetValue("operations", out opsObj) || opsObj == null)
+                        p.Config.TryGetValue("Operations", out opsObj);
+
+                    if (opsObj == null) continue;
+
+                    IEnumerable<object>? opsEnumerable = null;
                     if (opsObj is JArray jarr)
                     {
-                        foreach (var tok in jarr.OfType<JObject>())
-                        {
-                            var action = (string?)tok["action"];
-                            // נסה column, ואם אין – field, ואם אין – הראשון מתוך fields
-                            var column = (string?)tok["column"];
-                            column ??= (string?)tok["field"];
-                            if (column == null && tok["fields"] is JArray farr && farr.First is JValue v && v.Type == JTokenType.String)
-                                column = (string?)v;
-                            if (string.IsNullOrWhiteSpace(action)) continue;
+                        opsEnumerable = jarr;
+                    }
+                    else if (opsObj is IEnumerable<object> list)
+                    {
+                        opsEnumerable = list;
+                    }
 
-                            if (string.IsNullOrWhiteSpace(column))
-                                globalActions.Add(action);
-                            else
-                                perColumnOps.Add((column, action));
+                    if (opsEnumerable == null) continue;
+
+                    foreach (var item in opsEnumerable)
+                    {
+                        Dictionary<string, object>? dict =
+                            item as Dictionary<string, object> ??
+                            (NormalizeJToken(item) as Dictionary<string, object>);
+
+                        if (dict == null) continue;
+
+                        var action =
+                            (dict.TryGetValue("action", out var a1) ? a1?.ToString() : null) ??
+                            (dict.TryGetValue("Action", out var a2) ? a2?.ToString() : null);
+
+                        if (string.IsNullOrWhiteSpace(action)) continue;
+
+                        var columns = new List<string>();
+
+                        string? firstCol =
+                            (dict.TryGetValue("column", out var c1) ? c1?.ToString() : null) ??
+                            (dict.TryGetValue("field", out var c2) ? c2?.ToString() : null) ??
+                            (dict.TryGetValue("source_field", out var c3) ? c3?.ToString() : null);
+
+                        if (!string.IsNullOrWhiteSpace(firstCol))
+                        {
+                            columns.Add(firstCol!);
+                        }
+                        else
+                        {
+                            if (dict.TryGetValue("fields", out var fObj) || dict.TryGetValue("Fields", out fObj))
+                            {
+                                if (fObj is JArray fj) fObj = NormalizeJToken(fj);
+
+                                if (fObj is IEnumerable<object> fEnum)
+                                {
+                                    foreach (var f in fEnum)
+                                    {
+                                        var s = f?.ToString();
+                                        if (!string.IsNullOrWhiteSpace(s))
+                                            columns.Add(s!);
+                                    }
+                                }
+                                else if (fObj is string fs && !string.IsNullOrWhiteSpace(fs))
+                                {
+                                    columns.Add(fs);
+                                }
+                            }
+                        }
+
+                        if (columns.Count == 0)
+                        {
+                            globalActions.Add(action);
+                        }
+                        else
+                        {
+                            foreach (var col in columns)
+                                perColumnOps.Add((col, action));
                         }
                     }
                 }
 
                 if (RemoveEmptyRowsCheckBox != null)
                     RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
+
                 if (RemoveDuplicatesCheckBox != null)
                     RemoveDuplicatesCheckBox.IsChecked = globalActions.Contains("remove_duplicates");
+
                 if (StripWhitespaceCheckBox != null)
                     StripWhitespaceCheckBox.IsChecked = globalActions.Contains("strip_whitespace");
 
-                if (ColumnsPanel != null && ColumnsPanel.Children.Count > 0 && perColumnOps.Count > 0)
-                {
-                    foreach (var (column, action) in perColumnOps)
-                    {
-                        var tag = $"{column}:{action}";
-                        var cb = FindCheckBoxByTag(ColumnsPanel, tag);
-                        if (cb != null) cb.IsChecked = true;
-                    }
-                }
-                else if (perColumnOps.Count > 0 && !string.IsNullOrWhiteSpace(sourcePath) && !File.Exists(sourcePath))
-                {
-                    AddWarningNotification("קובץ מקור לא נטען",
-                        "זוהו פעולות לפי עמודות, אך הקובץ ב-source.path לא נמצא. בחר קובץ נתונים זהה לזה שבקונפיג כדי לסמן אוטומטית.");
-                }
+                _pendingOperationsToApply.AddRange(perColumnOps);
+                ApplyPendingOperations();
             }
             finally
             {
@@ -190,6 +240,43 @@ namespace PipeWiseClient
             }
         }
 
+        private void ApplyPendingOperations()
+        {
+            if (_pendingOperationsToApply == null || _pendingOperationsToApply.Count == 0)
+            {
+                return;
+            }
+
+            if (ColumnsPanel?.Children.Count == 0)
+            {
+                return;
+            }
+
+            var appliedCount = 0;
+            var pendingOperations = _pendingOperationsToApply.ToList();
+
+            foreach (var (column, action) in pendingOperations)
+            {
+                var tag = $"{column}:{action}";
+                var cb = FindCheckBoxByTag(ColumnsPanel, tag);
+                if (cb != null)
+                {
+                    cb.IsChecked = true;
+                    appliedCount++;
+                }
+                else
+                {
+                    AddInfoNotification("❌", $"לא נמצא: {tag}");
+                }
+            }
+
+            if (appliedCount > 0)
+            {
+                _pendingOperationsToApply.RemoveAll(op =>
+                    pendingOperations.Any(p => p.column == op.column && p.action == op.action &&
+                                            FindCheckBoxByTag(ColumnsPanel, $"{op.column}:{op.action}") != null));
+            }
+        }
 
         private void EnsureSafeTargetPath(PipelineConfig cfg, string dataFilePath)
         {
@@ -199,7 +286,6 @@ namespace PipeWiseClient
                 ? "output"
                 : Path.GetFileNameWithoutExtension(dataFilePath);
 
-            // לפי בחירת המשתמש
             var selectedTargetType = GetSelectedTargetType();
             var targetExt = ExtForTarget(selectedTargetType);
 
@@ -234,13 +320,32 @@ namespace PipeWiseClient
         }
 
         private bool TryReadConfigFromJson(string filePath, out PipelineConfig? cfg, out string? error)
-        {
+        {            
             try
             {
+                if (!File.Exists(filePath))
+                {
+                    cfg = null;
+                    error = "קובץ הקונפיגורציה לא קיים.";
+                    return false;
+                }
+
                 var json = File.ReadAllText(filePath, Encoding.UTF8);
+                
                 cfg = Newtonsoft.Json.JsonConvert.DeserializeObject<PipelineConfig>(json);
-                if (cfg == null) { error = "קובץ קונפיג לא תקין."; return false; }
-                if (cfg.Source == null || cfg.Target == null) { error = "חסרים source/target בקונפיג."; return false; }
+                
+                if (cfg == null) 
+                { 
+                    error = "קובץ קונפיג לא תקין."; 
+                    return false; 
+                }
+                
+                if (cfg.Source == null || cfg.Target == null) 
+                { 
+                    error = "חסרים source/target בקונפיג."; 
+                    return false; 
+                }
+                
                 error = null;
                 return true;
             }

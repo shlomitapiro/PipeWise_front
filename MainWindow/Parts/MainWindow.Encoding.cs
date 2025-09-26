@@ -12,6 +12,7 @@ namespace PipeWiseClient
     {
         private async Task OpenCategoricalEncodingWindow(string fieldName)
         {
+            await Task.Yield();
             try
             {
                 var filePath = FilePathTextBox.Text?.Trim();
@@ -28,28 +29,28 @@ namespace PipeWiseClient
 
                 if (encodingWindow.ShowDialog() == true && encodingWindow.Result != null)
                 {
-                   var winCfg = encodingWindow.Result;
+                    var winCfg = encodingWindow.Result;
 
-                   var mapped = new PipeWiseClient.Models.CategoricalEncodingConfig
-                   {
-                       Field = winCfg.Field,
-                       Mapping = new Dictionary<string, int>(winCfg.Mapping),
-                       TargetField = winCfg.TargetField,
-                       ReplaceOriginal = winCfg.ReplaceOriginal,
-                       DeleteOriginal = winCfg.DeleteOriginal,
-                       DefaultValue = winCfg.DefaultValue
-                   };
+                    var mapped = new PipeWiseClient.Models.CategoricalEncodingConfig
+                    {
+                        Field = winCfg.Field,
+                        Mapping = new Dictionary<string, int>(winCfg.Mapping),
+                        TargetField = winCfg.TargetField,
+                        ReplaceOriginal = winCfg.ReplaceOriginal,
+                        DeleteOriginal = winCfg.DeleteOriginal,
+                        DefaultValue = winCfg.DefaultValue
+                    };
 
-                   var settings = _columnSettings[fieldName];
-                   settings.CategoricalEncoding = mapped;
+                    var settings = _columnSettings[fieldName];
+                    settings.CategoricalEncoding = mapped;
 
-                   AddSuccessNotification("קידוד קטגוריאלי",
-                       $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
-               }
+                    AddSuccessNotification("קידוד קטגוריאלי",
+                        $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
+                }
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בקידוד קטגוריאלי", 
+                AddErrorNotification("שגיאה בקידוד קטגוריאלי",
                     "לא ניתן לפתוח חלון קידוד קטגוריאלי", ex.Message);
             }
         }
