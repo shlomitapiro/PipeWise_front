@@ -8,14 +8,11 @@ namespace PipeWiseClient.Windows
 {
     public partial class RemoveInvalidIdentifierDialog : Window
     {
-        // תוצאות שהדיאלוג מחזיר ל-UI
         public string IdType { get; private set; } = "numeric"; // numeric | string | uuid
         public bool TreatWhitespaceAsEmpty { get; private set; } = true;
 
         public string EmptyAction { get; private set; } = "remove"; // remove | replace
         public string? EmptyReplacement { get; private set; }
-
-        // Numeric options
         public bool NumIntegerOnly => NumIntegerOnlyBox.IsChecked == true;
         public bool NumAllowLeadingZeros => NumAllowLeadingZerosBox.IsChecked == true;
         public bool NumAllowNegative => NumAllowNegativeBox.IsChecked == true;
@@ -30,8 +27,6 @@ namespace PipeWiseClient.Windows
                 return null;
             }
         }
-
-        // String options
         public int StrMinLength
         {
             get
@@ -53,30 +48,26 @@ namespace PipeWiseClient.Windows
         }
         public bool StrDisallowWhitespace => StrDisallowWsBox.IsChecked == true;
         public string? StrRegex => string.IsNullOrWhiteSpace(StrRegexBox.Text) ? null : StrRegexBox.Text.Trim();
-
-        // UUID options
-        public bool UuidAcceptHyphenated => UuidAcceptHyphenBox.IsChecked == true; // קבוע true + disabled
+        public bool UuidAcceptHyphenated => UuidAcceptHyphenBox.IsChecked == true;
         public bool UuidAcceptBraced => UuidAcceptBracedBox.IsChecked == true;
         public bool UuidAcceptUrn => UuidAcceptUrnBox.IsChecked == true;
-
         public RemoveInvalidIdentifierDialog(string columnName)
         {
             InitializeComponent();
             Title = $"הסר מזהה לא חוקי – '{columnName}'";
-            Loaded += (_, __) => IdTypeCombo_SelectionChanged(IdTypeCombo, null); // להחיל את ה־UI אחרי שהכול קיים
+            Loaded += (_, __) => IdTypeCombo_SelectionChanged(IdTypeCombo, null);
         }
 
-        private void IdTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void IdTypeCombo_SelectionChanged(object? sender, SelectionChangedEventArgs? e)
         {
-            // אם החלון עדיין לא נטען — לצאת. ה־XAML כבר הגדיר מצב התחלתי (Numeric=Visible, אחרים Collapsed)
             if (!IsLoaded || NumericPanel == null || StringPanel == null || UuidPanel == null) return;
 
             var tag = (IdTypeCombo?.SelectedItem as ComboBoxItem)?.Tag as string ?? "numeric";
             IdType = tag;
 
             NumericPanel.Visibility = tag == "numeric" ? Visibility.Visible : Visibility.Collapsed;
-            StringPanel.Visibility  = tag == "string"  ? Visibility.Visible : Visibility.Collapsed;
-            UuidPanel.Visibility    = tag == "uuid"   ? Visibility.Visible : Visibility.Collapsed;
+            StringPanel.Visibility = tag == "string" ? Visibility.Visible : Visibility.Collapsed;
+            UuidPanel.Visibility = tag == "uuid" ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void EmptyRadio_Checked(object sender, RoutedEventArgs e)
@@ -89,7 +80,6 @@ namespace PipeWiseClient.Windows
         {
             TreatWhitespaceAsEmpty = TreatWsAsEmptyBox.IsChecked == true;
 
-            // Empty handling
             if (EmptyReplaceRadio.IsChecked == true)
             {
                 EmptyAction = "replace";
@@ -155,12 +145,10 @@ namespace PipeWiseClient.Windows
             switch (IdType)
             {
                 case "numeric":
-                    // בדיקה פשטנית: ספרות בלבד (אולי עם סימן שלילי) – בלי מפרידי אלפים/נקודות
                     var s = value.Trim();
                     if (string.IsNullOrEmpty(s)) return false;
                     if (NumAllowNegative && s.StartsWith("-")) s = s[1..];
                     if (!NumAllowThousandSeparators && (s.Contains(",") || s.Contains("."))) return false;
-                    // אם IntegerOnly – אין נקודה עשרונית
                     if (NumIntegerOnly && s.Contains(".")) return false;
                     foreach (var ch in s) if (!char.IsDigit(ch)) return false;
                     if (NumMaxDigits.HasValue && s.TrimStart('0').Length > NumMaxDigits.Value) return false;
@@ -179,7 +167,6 @@ namespace PipeWiseClient.Windows
                         v = v.Substring("urn:uuid:".Length);
                     if (UuidAcceptBraced && v.StartsWith("{") && v.EndsWith("}"))
                         v = v.Substring(1, v.Length - 2);
-                    // דורשים צורה עם מקפים:
                     var rx = new Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$");
                     return rx.IsMatch(v);
 
