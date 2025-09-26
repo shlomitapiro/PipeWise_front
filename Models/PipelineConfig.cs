@@ -1,10 +1,15 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using System.Text.Json.Serialization;
+
 
 namespace PipeWiseClient.Models
 {
     public class PipelineConfig
     {
+         [JsonPropertyName("pipeline_name")]
+        public string? Name { get; set; }
+
         [JsonProperty("source")]
         public required SourceConfig Source { get; set; }
         

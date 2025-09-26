@@ -1,3 +1,5 @@
+// API client for PipeWise server
+// Services/ApiClient.cs
 using System;
 using System.IO;
 using System.Net.Http;
@@ -12,18 +14,30 @@ using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Services
 {
-    /// <summary>
-    /// תוצאת סריקת שדה לערכים ייחודיים
-    /// </summary>
-    public class ScanFieldResult // ✅ זה יכול להיות מחוץ למחלקה
+    public class ScanFieldResult
     {
+        [JsonPropertyName("field_name")]
         public string FieldName { get; set; } = string.Empty;
+
+        [JsonPropertyName("unique_values")]
         public List<string> UniqueValues { get; set; } = new();
+
+        [JsonPropertyName("total_rows")]
         public int TotalRows { get; set; }
+
+        [JsonPropertyName("null_count")]
         public int NullCount { get; set; }
+
+        [JsonPropertyName("field_exists")]
         public bool FieldExists { get; set; }
+
+        [JsonPropertyName("truncated")]
         public bool Truncated { get; set; }
+
+        [JsonPropertyName("available_fields")]
         public List<string> AvailableFields { get; set; } = new();
+
+        [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
     }
 
@@ -31,7 +45,6 @@ namespace PipeWiseClient.Services
     {
         private readonly HttpClient _http;
 
-        // שנה כאן כתובת בסיס אם צריך
         private const string BASE_URL = "http://127.0.0.1:8000/";
 
         public ApiClient(HttpClient? http = null)
@@ -41,10 +54,6 @@ namespace PipeWiseClient.Services
 
         public void Dispose() => _http.Dispose();
 
-        /// <summary>
-        /// סריקת שדה בקובץ למציאת ערכים ייחודיים
-        /// משמש לקידוד קטגוריאלי
-        /// </summary>
         public async Task<ScanFieldResult> ScanFieldValuesAsync( 
             string filePath,
             string fieldName,
@@ -65,32 +74,28 @@ namespace PipeWiseClient.Services
 
                 using var form = new MultipartFormDataContent();
 
-                // הוסף את הקובץ
                 var fileBytes = await File.ReadAllBytesAsync(filePath, ct);
                 var fileContent = new ByteArrayContent(fileBytes);
 
-                // הגדרת Content-Type לפי סוג הקובץ
                 var extension = Path.GetExtension(filePath).ToLower();
                 var contentType = extension switch
                 {
-                    ".csv" => "text/csv",
+                    ".csv"  => "text/csv",
                     ".json" => "application/json",
-                    ".xml" => "text/xml", // שינוי ל-text/xml
+                    ".xml"  => "application/xml",
                     ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    ".xls" => "application/vnd.ms-excel",
-                    _ => "application/octet-stream"
+                    ".xls"  => "application/vnd.ms-excel",
+                    _       => "application/octet-stream"
                 };
 
                 fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
                 form.Add(fileContent, "file", Path.GetFileName(filePath));
 
-                // הוסף פרמטרים נוספים
                 form.Add(new StringContent(fieldName), "field_name");
                 form.Add(new StringContent(maxUniqueValues.ToString()), "max_unique_values");
 
                 System.Diagnostics.Debug.WriteLine($"Sending request to /scan-field with file: {Path.GetFileName(filePath)}, field: {fieldName}");
 
-                // שליחת הבקשה
                 var response = await _http.PostAsync("/scan-field", form, ct);
                 var content = await response.Content.ReadAsStringAsync(ct);
 
@@ -105,12 +110,10 @@ namespace PipeWiseClient.Services
                     throw new HttpRequestException($"API Error: {response.StatusCode} - {content}");
                 }
 
-                var result = System.Text.Json.JsonSerializer.Deserialize<ScanFieldResult>(content,
-                    new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true,
-                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-                    });
+                var result = System.Text.Json.JsonSerializer.Deserialize<ScanFieldResult>(
+                    content,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
 
                 return result ?? new ScanFieldResult
                 {
@@ -131,12 +134,19 @@ namespace PipeWiseClient.Services
         // ------------------ Jobs API (Start → Progress → Result) ------------------
         public async Task<RunStartResponse> StartRunAsync(object pipelineConfig, CancellationToken ct = default)
         {
-            using var payload = JsonContent.Create(pipelineConfig);
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(pipelineConfig);
+            using var payload = new StringContent(json, Encoding.UTF8, "application/json");
+
             var res = await _http.PostAsync("runs", payload, ct);
             res.EnsureSuccessStatusCode();
-            var dto = await res.Content.ReadFromJsonAsync<RunStartResponse>(cancellationToken: ct);
+
+            var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<RunStartResponse>(
+                await res.Content.ReadAsStringAsync(ct)
+            );
+
             if (dto == null || string.IsNullOrWhiteSpace(dto.RunId))
                 throw new InvalidOperationException("Server did not return a valid run_id.");
+
             return dto;
         }
 
@@ -159,10 +169,9 @@ namespace PipeWiseClient.Services
             if (!res.IsSuccessStatusCode) return new List<ReportInfo>();
 
             var json = await res.Content.ReadAsStringAsync(ct);
-            var parsed = System.Text.Json.JsonSerializer.Deserialize<ReportsListResponse>(json);
+            var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<ReportsListResponse>(json);
             return parsed?.Reports ?? new List<ReportInfo>();
         }
-
         public async Task<bool> DeleteReportAsync(string reportId, CancellationToken ct = default)
         {
             var res = await _http.DeleteAsync($"reports/{reportId}", ct);
@@ -184,7 +193,7 @@ namespace PipeWiseClient.Services
             if (!res.IsSuccessStatusCode) return null;
 
             var json = await res.Content.ReadAsStringAsync(ct);
-            var parsed = System.Text.Json.JsonSerializer.Deserialize<CleanupResponse>(json);
+            var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<CleanupResponse>(json);
             return parsed?.CleanupResult;
         }
 
@@ -289,16 +298,14 @@ namespace PipeWiseClient.Services
 
             if (overridesObj != null)
             {
-                var json = System.Text.Json.JsonSerializer.Serialize(overridesObj,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(overridesObj);
                 form.Add(new StringContent(json, Encoding.UTF8, "application/json"), "overrides");
                 addedAny = true;
             }
 
             if (report != null)
             {
-                var json = System.Text.Json.JsonSerializer.Serialize(report,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(report);
                 form.Add(new StringContent(json, Encoding.UTF8, "application/json"), "report_settings");
                 addedAny = true;
             }
@@ -349,7 +356,7 @@ namespace PipeWiseClient.Services
         }
 
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
-        public async Task<RunPipelineResult> RunAdHocPipelineAsync( // ✅ רק מתודה אחת!
+        public async Task<RunPipelineResult> RunAdHocPipelineAsync(
             string filePath,
             PipelineConfig config,
             RunReportSettings? report = null,
@@ -374,18 +381,13 @@ namespace PipeWiseClient.Services
             fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
             form.Add(fileContent, "file", Path.GetFileName(filePath));
 
-            var configJson = System.Text.Json.JsonSerializer.Serialize(config, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-                WriteIndented = false,
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            });
-            form.Add(new StringContent(configJson), "config");
+            var configJson = Newtonsoft.Json.JsonConvert.SerializeObject(config);
+            form.Add(new StringContent(configJson, Encoding.UTF8, "application/json"), "config");
 
             if (report != null)
             {
-                var reportJson = System.Text.Json.JsonSerializer.Serialize(report);
-                form.Add(new StringContent(reportJson), "report_settings");
+                var reportJson = Newtonsoft.Json.JsonConvert.SerializeObject(report);
+                form.Add(new StringContent(reportJson, Encoding.UTF8, "application/json"), "report_settings");
             }
 
             var response = await _http.PostAsync("/run-pipeline", form, ct);
@@ -410,7 +412,7 @@ namespace PipeWiseClient.Services
             if (!res.IsSuccessStatusCode) return null;
 
             var json = await res.Content.ReadAsStringAsync(ct);
-            var dto = System.Text.Json.JsonSerializer.Deserialize<SingleReportResponse>(json);
+            var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<SingleReportResponse>(json);
             return dto?.Report;
         }
 
@@ -419,6 +421,7 @@ namespace PipeWiseClient.Services
             [System.Text.Json.Serialization.JsonPropertyName("report")]
             public ReportInfo? Report { get; set; }
         }
+
 
         // ------------------ Info & Validation ------------------
 

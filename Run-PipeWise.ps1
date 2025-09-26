@@ -24,8 +24,8 @@ $ClientExeDebug   = "C:\Users\shlom\PipeWise_client\bin\Debug\net8.0-windows\Pip
 
 # משתני סביבה אופציונליים ל-API
 $env:AUTH_REQUIRED = "0"
-# $env:PIPEWISE_PIPELINES_DIR = "C:\Users\shlom\PipeWise\config\pipelines"
-# $env:PIPEWISE_REPORTS_DIR   = "C:\Users\shlom\PipeWise\reports"
+$env:PIPEWISE_PIPELINES_DIR = "C:\Users\shlom\PipeWise\config\pipelines"
+$env:PIPEWISE_REPORTS_DIR   = "C:\Users\shlom\PipeWise\reports"
 
 # === לוגים ===
 $LogDir   = Join-Path $PSScriptRoot "logs"

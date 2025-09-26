@@ -315,6 +315,7 @@ namespace PipeWiseClient
                 }
 
                 _loadedConfig = cfg!;
+                NormalizeProcessorConfigs(_loadedConfig);
                 _hasCompatibleConfig = true;
                 AddSuccessNotification("קונפיגורציה נטענה", $"נטען: {System.IO.Path.GetFileName(cfgDlg.FileName)}");
                 await ApplyConfigToUI(_loadedConfig);
@@ -498,6 +499,7 @@ namespace PipeWiseClient
                     EndRunUiError("הריצה בוטלה");
                     return;
                 }
+
                 catch
                 {
                     AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (העלאת קובץ).");
@@ -539,7 +541,6 @@ namespace PipeWiseClient
                 if (RunProgressText != null) RunProgressText.Text = "0%";
             }
         }
-
         private PipelineConfig? BuildPipelineConfig()
         {
             try
@@ -907,6 +908,12 @@ namespace PipeWiseClient
                         {
                             aggregationOps.Add(opDict);
                         }
+
+                        if (!cleaningOps.Contains(opDict) && !transformOps.Contains(opDict) && !aggregationOps.Contains(opDict))
+                        {
+                            cleaningOps.Add(opDict);
+                        }
+
                     }
                 }
 
@@ -989,7 +996,6 @@ namespace PipeWiseClient
 
                 var baseName = Path.GetFileNameWithoutExtension(FilePathTextBox.Text);
 
-                // לפי בחירת המשתמש
                 var selectedTargetType = GetSelectedTargetType();
                 var targetExt = ExtForTarget(selectedTargetType);
 
@@ -997,7 +1003,6 @@ namespace PipeWiseClient
                 try { Directory.CreateDirectory(OUTPUT_DIR); } catch { }
                 var absoluteTargetPath = Path.Combine(OUTPUT_DIR, outputFileName);
 
-                // DEBUG בלבד – אל תציג למשתמשים ב-Release
 #if DEBUG
                 try
                 {
@@ -1009,6 +1014,7 @@ namespace PipeWiseClient
 
                 var built = new PipelineConfig
                 {
+                    Name = baseName,
                     Source = new SourceConfig
                     {
                         Type = sourceType,
@@ -1031,5 +1037,75 @@ namespace PipeWiseClient
                 return null;
             }
         }
+        
+        private static object NormalizeJToken(object? o)
+        {
+            switch (o)
+            {
+                case null:
+                    return null!;
+                case Newtonsoft.Json.Linq.JValue v:
+                    return v.Value!;
+                case Newtonsoft.Json.Linq.JObject jo:
+                    return jo.Properties()
+                            .ToDictionary(p => p.Name, p => NormalizeJToken(p.Value));
+                case Newtonsoft.Json.Linq.JArray ja:
+                    return ja.Select(NormalizeJToken).ToList();
+                default:
+                    return o;
+            }
+        }
+
+        private static void NormalizeProcessorConfigs(PipelineConfig cfg)
+        {
+            if (cfg?.Processors == null) return;
+
+            foreach (var p in cfg.Processors)
+            {
+                if (p?.Config == null) continue;
+
+                // אם זה JObject/JArray – המרה למבני .NET "טהורים"
+                if (p.Config is Newtonsoft.Json.Linq.JObject || p.Config is Newtonsoft.Json.Linq.JArray)
+                {
+                    var norm = NormalizeJToken(p.Config);
+                    // מצופה להיות מילון שכולל "operations": List<Dictionary<string, object>>
+                    if (norm is Dictionary<string, object> dict)
+                        p.Config = dict;
+                }
+
+                // דאג שמפתח "operations" יהיה רשימת אובייקטים (לא מערכים ריקים מוזרים)
+                if (p.Config is Dictionary<string, object> cfgDict &&
+                    cfgDict.TryGetValue("operations", out var ops) && ops != null)
+                {
+                    if (ops is Newtonsoft.Json.Linq.JArray)
+                        ops = NormalizeJToken(ops);
+
+                    if (ops is IEnumerable<object> list)
+                    {
+                        // כל איבר חייב להיות Dictionary<string, object>
+                        var fixedList = new List<Dictionary<string, object>>();
+                        foreach (var it in list)
+                        {
+                            if (it is Newtonsoft.Json.Linq.JObject || it is Newtonsoft.Json.Linq.JArray)
+                            {
+                                var normIt = NormalizeJToken(it);
+                                if (normIt is Dictionary<string, object> d)
+                                    fixedList.Add(d);
+                            }
+                            else if (it is Dictionary<string, object> d)
+                            {
+                                fixedList.Add(d);
+                            }
+                            else
+                            {
+                                // זרוק איברים לא חוקיים
+                            }
+                        }
+                        cfgDict["operations"] = fixedList;
+                    }
+                }
+            }
+        }
+
     }
 }
