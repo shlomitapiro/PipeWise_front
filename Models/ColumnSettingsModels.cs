@@ -27,6 +27,7 @@ namespace PipeWiseClient.Models
         public CategoricalEncodingConfig? CategoricalEncoding { get; set; }
         public CastTypeSettings? CastType { get; set; }
         public string? ColumnName { get; set; }
+        public bool RemoveColumn { get; set; } = false;
     }
 
     public class NumericRangeSettings
