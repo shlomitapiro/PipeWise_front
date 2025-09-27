@@ -652,7 +652,20 @@ namespace PipeWiseClient
                     globalOperations.Add(new { action = "remove_duplicates" });
 
                 if (StripWhitespaceCheckBox?.IsChecked == true)
-                    globalOperations.Add(new { action = "strip_whitespace" });
+                {
+                    var fields = (_columnNames != null && _columnNames.Count > 0)
+                                 ? _columnNames.ToArray()
+                                 : Array.Empty<string>();
+
+                    if (fields.Length > 0)
+                    {
+                        globalOperations.Add(new Dictionary<string, object>
+                        {
+                            ["action"] = "strip_whitespace",
+                            ["fields"] = fields
+                        });
+                    }
+                }
 
                 var cleaningOps = new List<object>();
                 var transformOps = new List<object>();
