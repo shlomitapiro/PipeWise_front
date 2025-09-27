@@ -5,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -50,6 +51,81 @@ namespace PipeWiseClient.Services
         public ApiClient(HttpClient? http = null)
         {
             _http = http ?? new HttpClient { BaseAddress = new Uri(BASE_URL) };
+        }
+
+        private static object? NormalizeForHttp(object? value)
+        {
+            if (value is null) return null;
+
+            if (value is JsonElement je) return FromJsonElement(je);
+
+            if (value is IDictionary<string, object?> gdict)
+            {
+                var copy = new Dictionary<string, object?>(gdict.Count);
+                foreach (var kv in gdict)
+                    copy[kv.Key] = NormalizeForHttp(kv.Value);
+                return copy;
+            }
+
+            if (value is System.Collections.IDictionary ndict)
+            {
+                var copy = new Dictionary<string, object?>();
+                foreach (var key in ndict.Keys)
+                    if (key is string s)
+                        copy[s] = NormalizeForHttp(ndict[key]);
+                return copy;
+            }
+
+            if (value is System.Collections.IEnumerable seq && value is not string)
+            {
+                var list = new List<object?>();
+                foreach (var item in seq)
+                    list.Add(NormalizeForHttp(item));
+                return list;
+            }
+
+            var type = value.GetType();
+            if (!type.IsPrimitive && type != typeof(string) && !type.IsEnum)
+            {
+                var props = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (props.Length > 0)
+                {
+                    var obj = new Dictionary<string, object?>(props.Length);
+                    foreach (var p in props)
+                        if (p.CanRead)
+                            obj[p.Name] = NormalizeForHttp(p.GetValue(value));
+                    return obj;
+                }
+            }
+
+            return value;
+        }
+
+
+        private static object? FromJsonElement(JsonElement e)
+        {
+            switch (e.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    var obj = new Dictionary<string, object?>();
+                    foreach (var p in e.EnumerateObject()) obj[p.Name] = FromJsonElement(p.Value);
+                    return obj;
+
+                case JsonValueKind.Array:
+                    var arr = new List<object?>();
+                    foreach (var it in e.EnumerateArray()) arr.Add(FromJsonElement(it));
+                    return arr;
+
+                case JsonValueKind.String: return e.GetString();
+                case JsonValueKind.Number:
+                    if (e.TryGetInt64(out var l)) return l;
+                    if (e.TryGetDouble(out var d)) return d;
+                    return e.GetRawText();
+                case JsonValueKind.True:  return true;
+                case JsonValueKind.False: return false;
+                case JsonValueKind.Null:  return null;
+                default: return null;
+            }
         }
 
         public void Dispose() => _http.Dispose();
@@ -134,10 +210,18 @@ namespace PipeWiseClient.Services
         // ------------------ Jobs API (Start → Progress → Result) ------------------
         public async Task<RunStartResponse> StartRunAsync(object pipelineConfig, CancellationToken ct = default)
         {
-            var json = Newtonsoft.Json.JsonConvert.SerializeObject(pipelineConfig);
+            var normalized = new
+            {
+                source = NormalizeForHttp(pipelineConfig is PipelineConfig pc ? pc.Source : pipelineConfig.GetType().GetProperty("Source")?.GetValue(pipelineConfig)),
+                processors = NormalizeForHttp(pipelineConfig is PipelineConfig pc2 ? pc2.Processors : pipelineConfig.GetType().GetProperty("Processors")?.GetValue(pipelineConfig)),
+                target = NormalizeForHttp(pipelineConfig is PipelineConfig pc3 ? pc3.Target : pipelineConfig.GetType().GetProperty("Target")?.GetValue(pipelineConfig)),
+            };
+
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(normalized);
             using var payload = new StringContent(json, Encoding.UTF8, "application/json");
 
             var res = await _http.PostAsync("runs", payload, ct);
+
             res.EnsureSuccessStatusCode();
 
             var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<RunStartResponse>(
@@ -227,26 +311,17 @@ namespace PipeWiseClient.Services
             string? description = null,
             CancellationToken ct = default)
         {
-            HttpContent payload;
-
-            if (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(description))
+            var body = new Dictionary<string, object?>()
             {
-                var body = new Dictionary<string, object?>()
-                {
-                    ["name"] = string.IsNullOrWhiteSpace(name) ? null : name,
-                    ["description"] = string.IsNullOrWhiteSpace(description) ? null : description,
-                    ["source"] = config.Source,
-                    ["processors"] = config.Processors,
-                    ["target"] = config.Target
-                };
-                payload = JsonContent.Create(body);
-            }
-            else
-            {
-                payload = JsonContent.Create(config);
-            }
+                ["name"] = string.IsNullOrWhiteSpace(name) ? null : name,
+                ["description"] = string.IsNullOrWhiteSpace(description) ? null : description,
+                ["source"] = NormalizeForHttp(config.Source),
+                ["processors"] = NormalizeForHttp(config.Processors),
+                ["target"] = NormalizeForHttp(config.Target),
+            };
 
-            var res = await _http.PostAsync("pipelines", payload, ct);
+            var httpPayload = JsonContent.Create(body); 
+            var res = await _http.PostAsync("pipelines", httpPayload, ct);
 
             if (!res.IsSuccessStatusCode && (name != null || description != null))
             {
@@ -265,11 +340,17 @@ namespace PipeWiseClient.Services
 
         public async Task<PipelineResponse> UpdatePipelineAsync(string id, PipelineConfig config, CancellationToken ct = default)
         {
-            var payload = JsonContent.Create(config);
+            var updateBody = new {
+                source = NormalizeForHttp(config.Source),
+                processors = NormalizeForHttp(config.Processors),
+                target = NormalizeForHttp(config.Target),
+            };
+            var payload = JsonContent.Create(updateBody);
             var res = await _http.PutAsync($"pipelines/{id}", payload, ct);
             res.EnsureSuccessStatusCode();
-            var body = await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
-            return body ?? throw new InvalidOperationException("Empty or invalid server response for UpdatePipelineAsync.");
+
+            var parsed = await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+            return parsed ?? throw new InvalidOperationException("Empty or invalid server response for UpdatePipelineAsync.");
         }
 
         public async Task DeletePipelineAsync(string id, CancellationToken ct = default)
@@ -298,7 +379,8 @@ namespace PipeWiseClient.Services
 
             if (overridesObj != null)
             {
-                var json = Newtonsoft.Json.JsonConvert.SerializeObject(overridesObj);
+                var normalizedOverrides = NormalizeForHttp(overridesObj);
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(normalizedOverrides);
                 form.Add(new StringContent(json, Encoding.UTF8, "application/json"), "overrides");
                 addedAny = true;
             }
@@ -381,7 +463,12 @@ namespace PipeWiseClient.Services
             fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
             form.Add(fileContent, "file", Path.GetFileName(filePath));
 
-            var configJson = Newtonsoft.Json.JsonConvert.SerializeObject(config);
+            var cfgBody = new {
+                source     = NormalizeForHttp(config.Source),
+                processors = NormalizeForHttp(config.Processors),
+                target     = NormalizeForHttp(config.Target),
+            };
+            var configJson = Newtonsoft.Json.JsonConvert.SerializeObject(cfgBody);
             form.Add(new StringContent(configJson, Encoding.UTF8, "application/json"), "config");
 
             if (report != null)
