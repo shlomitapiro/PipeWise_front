@@ -586,20 +586,20 @@ namespace PipeWiseClient
 
                 var processors = new List<ProcessorConfig>();
 
-                var globalOperations = new List<Dictionary<string, object>>();
+                var globalOperations = new List<object>();
 
                 if (RemoveEmptyRowsCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_empty_rows" });
+                    globalOperations.Add(new { action = "remove_empty_rows" });
 
                 if (RemoveDuplicatesCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "remove_duplicates" });
+                    globalOperations.Add(new { action = "remove_duplicates" });
 
                 if (StripWhitespaceCheckBox?.IsChecked == true)
-                    globalOperations.Add(new Dictionary<string, object> { ["action"] = "strip_whitespace" });
+                    globalOperations.Add(new { action = "strip_whitespace" });
 
-                var cleaningOps = new List<Dictionary<string, object>>();
-                var transformOps = new List<Dictionary<string, object>>();
-                var aggregationOps = new List<Dictionary<string, object>>();
+                var cleaningOps = new List<object>();
+                var transformOps = new List<object>();
+                var aggregationOps = new List<object>();
 
                 foreach (var kvp in _columnSettings)
                 {
@@ -608,10 +608,7 @@ namespace PipeWiseClient
 
                     foreach (var operation in settings.Operations)
                     {
-                        var opDict = new Dictionary<string, object>
-                        {
-                            ["action"] = operation
-                        };
+                        var opDict = new Dictionary<string, object> { ["action"] = operation };
 
                         if (string.Equals(operation, "replace_empty_values", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(operation, "replace_null_values", StringComparison.OrdinalIgnoreCase) ||
@@ -984,7 +981,22 @@ namespace PipeWiseClient
                     cleaningOps = cleaningOps
                         .OrderBy(op =>
                         {
-                            var act = (op.TryGetValue("action", out var a) ? a?.ToString() : null) ?? "";
+                            string act = "";
+                            
+                            if (op is Dictionary<string, object> dict && dict.TryGetValue("action", out var a))
+                            {
+                                act = a?.ToString() ?? "";
+                            }
+                            else
+                            {
+                                var type = op.GetType();
+                                var actionProp = type.GetProperty("action");
+                                if (actionProp != null)
+                                {
+                                    act = actionProp.GetValue(op)?.ToString() ?? "";
+                                }
+                            }
+                            
                             return priority.TryGetValue(act, out var p) ? p : 100;
                         })
                         .ToList();
@@ -1023,10 +1035,10 @@ namespace PipeWiseClient
                         Type = "cleaner",
                         Config = new Dictionary<string, object>
                         {
-                            ["operations"] = new[]
+                            ["operations"] = new object[]
                             {
-                                new Dictionary<string, object> { ["action"] = "remove_empty_rows" },
-                                new Dictionary<string, object> { ["action"] = "strip_whitespace" }
+                                new { action = "remove_empty_rows" },
+                                new { action = "strip_whitespace" }
                             }
                         }
                     });
@@ -1155,6 +1167,47 @@ namespace PipeWiseClient
                     continue;
                 }
 
+                if (dict.TryGetValue("operations", out var opsValue))
+                {
+                    if (opsValue is Dictionary<string, object> opsDict && opsDict.ContainsKey("ValueKind"))
+                    {
+                        var processorType = p.Type?.ToLowerInvariant() ?? "";
+                        if (processorType == "cleaner")
+                        {
+                            dict["operations"] = new List<Dictionary<string, object>>
+                            {
+                                new() { ["action"] = "remove_empty_rows" },
+                                new() { ["action"] = "strip_whitespace" }
+                            };
+                        }
+                        else
+                        {
+                            dict["operations"] = new List<Dictionary<string, object>>();
+                        }                       
+                    }
+                    else if (opsValue is List<object> opsList)
+                    {
+                        var cleanedOps = new List<Dictionary<string, object>>();
+
+                        foreach (var op in opsList)
+                        {
+                            if (op is Dictionary<string, object> opDict)
+                            {
+                                if (!opDict.ContainsKey("ValueKind"))
+                                {
+                                    cleanedOps.Add(opDict);
+                                }
+                            }
+                            else if (op is string actionString)
+                            {
+                                cleanedOps.Add(new Dictionary<string, object> { ["action"] = actionString });
+                            }
+                        }
+
+                        dict["operations"] = cleanedOps;
+                    }
+                }
+
                 if (dict.ContainsKey("Operations") && !dict.ContainsKey("operations"))
                 {
                     dict["operations"] = dict["Operations"];
@@ -1173,6 +1226,7 @@ namespace PipeWiseClient
                 {
                     var item = NormalizeAnyJsonNode(it) as Dictionary<string, object?>;
                     if (item == null) continue;
+                    if (item.ContainsKey("ValueKind")) continue;
 
                     var nd = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
                     foreach (var kv in item)
