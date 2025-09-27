@@ -15,6 +15,15 @@ using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Services
 {
+    public class RunAlreadyStartedException : Exception
+    {
+        public string RunId { get; }
+        public RunAlreadyStartedException(string runId, Exception inner)
+            : base($"Run already started (run_id={runId})", inner)
+        {
+            RunId = runId;
+        }
+    }
     public class ScanFieldResult
     {
         [JsonPropertyName("field_name")]
@@ -224,14 +233,24 @@ namespace PipeWiseClient.Services
 
             res.EnsureSuccessStatusCode();
 
-            var dto = Newtonsoft.Json.JsonConvert.DeserializeObject<RunStartResponse>(
-                await res.Content.ReadAsStringAsync(ct)
-            );
+            var raw = await res.Content.ReadAsStringAsync(ct);
+            // פרסור גמיש: run_id / runId / id
+            string? runId = null;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(raw);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("run_id", out var p1)) runId = p1.GetString();
+                else if (root.TryGetProperty("runId", out var p2)) runId = p2.GetString();
+                else if (root.TryGetProperty("id", out var p3)) runId = p3.GetString();
+            }
+            catch { /* raw not json? let it fail below */ }
 
-            if (dto == null || string.IsNullOrWhiteSpace(dto.RunId))
+            if (string.IsNullOrWhiteSpace(runId))
                 throw new InvalidOperationException("Server did not return a valid run_id.");
 
-            return dto;
+            return new RunStartResponse { RunId = runId! };
+
         }
 
         public async Task<RunProgressResponse> GetRunProgressAsync(string runId, CancellationToken ct = default)
@@ -409,32 +428,49 @@ namespace PipeWiseClient.Services
             TimeSpan? pollInterval = null,
             CancellationToken ct = default)
         {
-            var start = await StartRunAsync(pipelineConfig, ct);
-            var interval = pollInterval ?? TimeSpan.FromMilliseconds(500);
-
-            while (true)
+            string runId = string.Empty;
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                try
+                var start = await StartRunAsync(pipelineConfig, ct);
+                runId = start.RunId;
+                // דווח ל-UI שמצב "starting" כדי שלא יתבצע fallback חפוז
+                progress?.Report(("starting", 0));
+
+                var interval = pollInterval ?? TimeSpan.FromMilliseconds(500);
+                while (true)
                 {
-                    var pr = await GetRunProgressAsync(start.RunId, ct);
-                    progress?.Report((pr.Status ?? "unknown", pr.Percent ?? 0));
-                    if (pr.Status == "completed" || pr.Status == "failed")
-                        break;
+                    ct.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var pr = await GetRunProgressAsync(start.RunId, ct);
+                        progress?.Report((pr.Status ?? "unknown", pr.Percent ?? 0));
+                        if (pr.Status == "completed" || pr.Status == "failed")
+                            break;
+                    }
+                    catch (HttpRequestException) { /* שגיאות זמניות בפולינג */ }
+                    await Task.Delay(interval, ct);
                 }
-                catch (HttpRequestException) { }
-                await Task.Delay(interval, ct);
-            }
 
-            var final = await GetRunResultAsync(start.RunId, ct)
-                ?? throw new InvalidOperationException("Missing run result.");
-            if (string.Equals(final.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                var final = await GetRunResultAsync(start.RunId, ct)
+                    ?? throw new InvalidOperationException("Missing run result.");
+                if (string.Equals(final.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    var err = final.Result?.message;
+                    throw new InvalidOperationException(!string.IsNullOrWhiteSpace(err) ? err : "Run failed.");
+                }
+                return final.Result ?? new RunPipelineResult();
+            }
+            catch (OperationCanceledException)
             {
-                var err = final.Result?.message;
-                throw new InvalidOperationException(!string.IsNullOrWhiteSpace(err) ? err : "Run failed.");
+                throw;
             }
-
-            return final.Result ?? new RunPipelineResult();
+            catch (Exception ex)
+            {
+                // אם כבר יש runId – אל תאפשר fallback כפול; תן ל-UI לדעת שהריצה החלה.
+                if (!string.IsNullOrEmpty(runId))
+                    throw new RunAlreadyStartedException(runId, ex);
+                throw;
+            }
         }
 
         // ------------------ Ad-hoc run (/run-pipeline) ------------------

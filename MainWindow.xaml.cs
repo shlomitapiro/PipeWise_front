@@ -1,5 +1,3 @@
-// PipeWise_Client/MainWindow.xaml.cs
-
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -15,6 +13,8 @@ using Microsoft.Win32;
 using Newtonsoft.Json;
 using OfficeOpenXml;
 using System.Threading;
+using System.Net;
+using System.Net.Http;
 
 using PipeWiseClient.Helpers;
 using PipeWiseClient.Models;
@@ -36,6 +36,7 @@ namespace PipeWiseClient
         private const int MAX_NOTIFICATIONS = 50;
         private bool _isApplyingConfig = false;
         private CancellationTokenSource? _runCts;
+        private bool _isRunning = false;
         private bool _hasCompatibleConfig = false;
         private bool _hasLastRunReport = false;
         private bool _hasFile => !string.IsNullOrWhiteSpace(FilePathTextBox?.Text) && File.Exists(FilePathTextBox.Text);
@@ -431,6 +432,8 @@ namespace PipeWiseClient
 
         private async void RunSavedPipeline_Click(object sender, RoutedEventArgs e)
         {
+            if (_isRunning) { AddWarningNotification("ריצה פעילה", "כבר מתבצעת ריצה, המתן לסיום."); return; }
+            _isRunning = true;
             try
             {
                 var picker = new PipeWiseClient.Windows.PipelinePickerWindow { Owner = this };
@@ -444,7 +447,13 @@ namespace PipeWiseClient
                 var p = picker.SelectedPipeline!;
                 BeginRunUi($"מריץ '{p.name}'…");
                 _runCts = new CancellationTokenSource();
-                var progress = CreateRunProgress();
+                var baseProgress = CreateRunProgress();
+                var runStarted = false;
+                var progress = new Progress<(string Status, int Percent)>(p =>
+                {
+                    runStarted = true;
+                    baseProgress.Report(p);
+                });
 
                 RunPipelineResult runResult;
                 try
@@ -452,12 +461,9 @@ namespace PipeWiseClient
                     var full = await _api.GetPipelineAsync(p.id);
                     if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
 
-                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress, 
-                                TimeSpan.FromMilliseconds(500), _runCts.Token);
-
-                    if (runResult == null)
-                        throw new InvalidOperationException("Run failed: no result returned from server");
-
+                    runResult = await _api.RunWithProgressAsync(full.pipeline!, progress,
+                                TimeSpan.FromMilliseconds(500), _runCts.Token)
+                                ?? throw new InvalidOperationException("Run failed: no result returned from server");
                 }
                 catch (OperationCanceledException)
                 {
@@ -465,9 +471,15 @@ namespace PipeWiseClient
                     EndRunUiError("הריצה בוטלה");
                     return;
                 }
-                catch (Exception)
+                catch (RunAlreadyStartedException ex)
                 {
-                    AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (ללא מעקב התקדמות).");
+                    AddErrorNotification("שגיאת ריצה", $"הריצה כבר הושקה (RunId={ex.RunId}); לא מריץ Ad-hoc כפול.", ex.InnerException?.Message ?? "");
+                    EndRunUiError("שגיאה במערכת");
+                    return;
+                }
+                catch (HttpRequestException httpEx) when (httpEx.StatusCode == HttpStatusCode.NotFound || httpEx.StatusCode == HttpStatusCode.MethodNotAllowed)
+                {
+                    AddInfoNotification("ניסיון חלופי", "Jobs API לא החזיר run_id – מריץ במצב Ad-hoc (ללא מעקב התקדמות).");
                     var full = await _api.GetPipelineAsync(p.id);
                     if (full?.pipeline == null) throw new InvalidOperationException("Pipeline definition missing.");
                     var adHocPath = full.pipeline.Source?.Path ?? FilePathTextBox?.Text;
@@ -480,8 +492,21 @@ namespace PipeWiseClient
                         report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false },
                         ct: _runCts.Token
                     );
-
                 }
+                catch (Exception ex)
+                {
+                    if (runStarted)
+                    {
+                        AddErrorNotification("שגיאת ריצה", "נכשלה ריצה עם מעקב; לא מריץ Ad-hoc כדי למנוע כפילויות.", ex.Message);
+                        EndRunUiError("שגיאה במערכת");
+                        return;
+                    }
+                    // בשגיאות אחרות שאינן 404/405 – אל תריץ Ad-hoc (מונע כפילויות)
+                    AddErrorNotification("שגיאת ריצה", "השרת החזיר שגיאה; לא מבצע Fallback אוטומטי.", ex.Message);
+                    EndRunUiError("שגיאה במערכת");
+                    return;
+                }
+
                 AddSuccessNotification("הרצה הושלמה", $"'{p.name}' הופעל בהצלחה", runResult?.message);
                 EndRunUiSuccess("המערכת פועלת תקין");
 
@@ -496,10 +521,16 @@ namespace PipeWiseClient
                 AddErrorNotification("שגיאה בהרצת פייפליין", "לא ניתן להריץ את הפייפליין שנבחר", ex.Message);
                 EndRunUiError("שגיאה במערכת");
             }
+            finally
+            {
+                _isRunning = false;
+            }
         }
 
         private async void RunPipeline_Click(object sender, RoutedEventArgs e)
         {
+            if (_isRunning) { AddWarningNotification("ריצה פעילה", "כבר מתבצעת ריצה, המתן לסיום."); return; }
+            _isRunning = true;
             try
             {
                 if (string.IsNullOrWhiteSpace(FilePathTextBox!.Text) || !File.Exists(FilePathTextBox.Text))
@@ -521,7 +552,13 @@ namespace PipeWiseClient
 
                 BeginRunUi("מעבד נתונים…");
                 _runCts = new CancellationTokenSource();
-                var progress = CreateRunProgress();
+                var baseProgress = CreateRunProgress();
+                var runStarted = false;
+                var progress = new Progress<(string Status, int Percent)>(p =>
+                {
+                    runStarted = true;
+                    baseProgress.Report(p);
+                });
 
                 RunPipelineResult result;
 
@@ -535,16 +572,35 @@ namespace PipeWiseClient
                     EndRunUiError("הריצה בוטלה");
                     return;
                 }
-
-                catch
+                catch (RunAlreadyStartedException ex)
                 {
-                    AddInfoNotification("ניסיון חלופי", "מריץ במצב Ad-hoc (העלאת קובץ).");
+                    // ריצה כבר החלה – לא לבצע fallback נוסף
+                    AddErrorNotification("שגיאת ריצה", $"הריצה כבר הושקה (RunId={ex.RunId}); לא מריץ Ad-hoc כפול.", ex.InnerException?.Message ?? "");
+                    EndRunUiError("שגיאה במערכת");
+                    return;
+                }
+                catch (HttpRequestException httpEx) when (httpEx.StatusCode == HttpStatusCode.NotFound || httpEx.StatusCode == HttpStatusCode.MethodNotAllowed)
+                {
+                    AddInfoNotification("ניסיון חלופי", "Jobs API לא החזיר run_id – מריץ במצב Ad-hoc (העלאת קובץ).");
                     result = await _api.RunAdHocPipelineAsync(
                         filePath: FilePathTextBox.Text,
                         config: cfg,
                         report: new RunReportSettings { generate_html = true, generate_pdf = true, auto_open_html = false },
                         ct: _runCts.Token
                     );
+                }
+                catch (Exception ex)
+                {
+                    if (runStarted)
+                    {
+                        AddErrorNotification("שגיאת ריצה", "נכשלה ריצה עם מעקב; לא מריץ Ad-hoc כדי למנוע כפילויות.", ex.Message);
+                        EndRunUiError("שגיאה במערכת");
+                        return;
+                    }
+                    // בשגיאות אחרות שאינן 404/405 – אל תריץ Ad-hoc (מונע כפילויות)
+                    AddErrorNotification("שגיאת ריצה", "השרת החזיר שגיאה; לא מבצע Fallback אוטומטי.", ex.Message);
+                    EndRunUiError("שגיאה במערכת");
+                    return;
                 }
 
                 AddSuccessNotification("Pipeline הושלם!", result.message);
@@ -571,6 +627,7 @@ namespace PipeWiseClient
             }
             finally
             {
+                _isRunning = false;
                 _runCts?.Dispose();
                 _runCts = null;
                 if (RunProgressBar != null) RunProgressBar.Value = 0;
@@ -595,11 +652,44 @@ namespace PipeWiseClient
                     globalOperations.Add(new { action = "remove_duplicates" });
 
                 if (StripWhitespaceCheckBox?.IsChecked == true)
-                    globalOperations.Add(new { action = "strip_whitespace" });
+                {
+                    var fields = (_columnNames != null && _columnNames.Count > 0)
+                                 ? _columnNames.ToArray()
+                                 : Array.Empty<string>();
+
+                    if (fields.Length > 0)
+                    {
+                        globalOperations.Add(new Dictionary<string, object>
+                        {
+                            ["action"] = "strip_whitespace",
+                            ["fields"] = fields
+                        });
+                    }
+                }
 
                 var cleaningOps = new List<object>();
                 var transformOps = new List<object>();
                 var aggregationOps = new List<object>();
+                
+                var columnsToRemove = new List<string>();
+                foreach (var kvp in _columnSettings)
+                {
+                    if (kvp.Value.RemoveColumn)
+                        columnsToRemove.Add(kvp.Key);
+                }
+
+                if (columnsToRemove.Count > 0)
+                {
+                    var removeColumnsOp = new Dictionary<string, object>
+                    {
+                        ["action"] = "remove_column",
+                        ["fields"] = columnsToRemove.ToArray()
+                    };
+                    cleaningOps.Add(removeColumnsOp);
+
+                    AddInfoNotification("הסרת עמודות",
+                        $"יוסרו {columnsToRemove.Count} עמודות: {string.Join(", ", columnsToRemove)}");
+                }
 
                 foreach (var kvp in _columnSettings)
                 {
@@ -712,7 +802,7 @@ namespace PipeWiseClient
                             var op = new Dictionary<string, object>
                             {
                                 ["action"] = "remove_invalid_identifier",
-                                ["field"]  = columnName
+                                ["field"] = columnName
                             };
 
                             if (s != null)
@@ -731,21 +821,21 @@ namespace PipeWiseClient
                                 {
                                     op["numeric"] = new Dictionary<string, object?>
                                     {
-                                        ["integer_only"]              = s.Numeric.IntegerOnly,
-                                        ["allow_leading_zeros"]       = s.Numeric.AllowLeadingZeros,
-                                        ["allow_negative"]            = s.Numeric.AllowNegative,
+                                        ["integer_only"] = s.Numeric.IntegerOnly,
+                                        ["allow_leading_zeros"] = s.Numeric.AllowLeadingZeros,
+                                        ["allow_negative"] = s.Numeric.AllowNegative,
                                         ["allow_thousand_separators"] = s.Numeric.AllowThousandSeparators,
-                                        ["max_digits"]                = s.Numeric.MaxDigits
+                                        ["max_digits"] = s.Numeric.MaxDigits
                                     };
                                 }
                                 else if (s.IdType == "string" && s.String != null)
                                 {
                                     op["string"] = new Dictionary<string, object?>
                                     {
-                                        ["min_length"]         = s.String.MinLength,
-                                        ["max_length"]         = s.String.MaxLength,
+                                        ["min_length"] = s.String.MinLength,
+                                        ["max_length"] = s.String.MaxLength,
                                         ["disallow_whitespace"] = s.String.DisallowWhitespace,
-                                        ["regex"]              = string.IsNullOrWhiteSpace(s.String.Regex) ? null : s.String.Regex
+                                        ["regex"] = string.IsNullOrWhiteSpace(s.String.Regex) ? null : s.String.Regex
                                     };
                                 }
                                 else if (s.IdType == "uuid" && s.Uuid != null)
@@ -753,8 +843,8 @@ namespace PipeWiseClient
                                     op["uuid"] = new Dictionary<string, object?>
                                     {
                                         ["accept_hyphenated"] = s.Uuid.AcceptHyphenated,
-                                        ["accept_braced"]     = s.Uuid.AcceptBraced,
-                                        ["accept_urn"]        = s.Uuid.AcceptUrn
+                                        ["accept_braced"] = s.Uuid.AcceptBraced,
+                                        ["accept_urn"] = s.Uuid.AcceptUrn
                                     };
                                 }
                             }
@@ -906,15 +996,14 @@ namespace PipeWiseClient
                         if (operation.StartsWith("remove_") || operation.StartsWith("replace_")
                             || operation == "strip_whitespace"
                             || operation == "set_numeric_range"
-                            || operation == "set_date_format"
-                            || operation == "to_uppercase"
-                            || operation == "to_lowercase")
+                            || operation == "set_date_format")
                         {
                             cleaningOps.Add(opDict);
                         }
                         else if (operation == "cast_type" ||
                                 operation == "normalize_numeric" || operation == "rename_field" ||
-                                operation == "merge_columns" || operation == "split_field")
+                                operation == "merge_columns" || operation == "split_field" ||
+                                operation == "to_uppercase" || operation == "to_lowercase")
                         {
                             transformOps.Add(opDict);
                         }
@@ -961,6 +1050,7 @@ namespace PipeWiseClient
 
                     }
                 }
+            
 
                 if (globalOperations.Count > 0 || cleaningOps.Count > 0)
                 {
@@ -976,13 +1066,14 @@ namespace PipeWiseClient
                         ["set_numeric_range"] = 70,
                         ["remove_duplicates"] = 80,
                         ["set_date_format"] = 90,
+                        ["remove_column"] = 99 
                     };
 
                     cleaningOps = cleaningOps
                         .OrderBy(op =>
                         {
                             string act = "";
-                            
+
                             if (op is Dictionary<string, object> dict && dict.TryGetValue("action", out var a))
                             {
                                 act = a?.ToString() ?? "";
@@ -996,7 +1087,7 @@ namespace PipeWiseClient
                                     act = actionProp.GetValue(op)?.ToString() ?? "";
                                 }
                             }
-                            
+
                             return priority.TryGetValue(act, out var p) ? p : 100;
                         })
                         .ToList();
@@ -1088,7 +1179,6 @@ namespace PipeWiseClient
                 };
 
                 return built;
-
             }
             catch (Exception ex)
             {

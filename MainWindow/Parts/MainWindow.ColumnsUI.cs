@@ -340,15 +340,14 @@ namespace PipeWiseClient
 
             var cleaningGroup = CreateOperationGroup("🧹 ניקוי", new[]
             {
+                ("הסר שדה", "remove_column"),
                 ("הסר מזהה לא חוקי", "remove_invalid_identifier"),
-                ("החלף ערכים ריקים", "replace_empty_values"),
                 ("החלף ערכי NULL", "replace_null_values"),
                 ("הסר ערכים ריקים", "remove_empty_values"),
                 ("הסר ערכי NULL", "remove_null_values"),
-                ("הפוך לאותיות גדולות", "to_uppercase"),
-                ("הפוך לאותיות קטנות", "to_lowercase"),
+                ("החלף ערכים ריקים", "replace_empty_values"),
                 ("הסר תווים מיוחדים", "remove_special_characters"),
-                ("אמת טווח מספרי", "set_numeric_range"),
+                ("קבע טווח מספרי", "set_numeric_range"),
                 ("קבע פורמט תאריך", "set_date_format"),
                 ("הסר תאריך לא חוקי", "remove_invalid_dates"),
             }, columnName);
@@ -357,10 +356,12 @@ namespace PipeWiseClient
             var transformGroup = CreateOperationGroup("🔄 טרנספורמציה", new[]
             {
                 ("שנה שם עמודה", "rename_field"),
-                ("מזג עמודות", "merge_columns"),
+                ("מזג עמודות", "merge_columns"),               
+                ("הפוך לאותיות גדולות", "to_uppercase"),
+                ("הפוך לאותיות קטנות", "to_lowercase"),
                 ("פצל שדה", "split_field"),
                 ("המר טיפוס", "cast_type"),
-                ("נרמל ערכים מספריים (0-1)", "normalize_numeric"),
+                ("נרמל ערכים מספריים", "normalize_numeric"),
                 ("קידוד קטגוריאלי", "categorical_encoding")
             }, columnName);
             operationsPanel.Children.Add(transformGroup);
@@ -470,7 +471,23 @@ namespace PipeWiseClient
                     }
                     else
                     {
-                        if (operationName == "replace_empty_values")
+                        if (operationName == "remove_column")
+                        {
+                            var result = MessageBox.Show(
+                                $"האם אתה בטוח שברצונך להסיר את העמודה '{columnName}' לחלוטין מהתוצאה?",
+                                "אישור הסרת עמודה",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning);
+                                
+                            if (result != MessageBoxResult.Yes)
+                            {
+                                checkBox.IsChecked = false;
+                                return;
+                            }
+                            
+                            settings.RemoveColumn = true;
+                        }
+                        else if (operationName == "replace_empty_values")
                         {
                             var inferredType = settings.InferredType ?? "string";
                             var dlg = new ValuePromptDialog(columnName, inferredType, 255) { Owner = this };
@@ -540,6 +557,7 @@ namespace PipeWiseClient
                 {
                     settings.Operations.Remove(operationName);
 
+                    if (operationName == "remove_column") settings.RemoveColumn = false;
                     if (operationName == "replace_empty_values") settings.ReplaceEmpty = null;
                     if (operationName == "replace_null_values")  settings.ReplaceNull  = null;
                     if (operationName == "set_date_format")      settings.DateFormatApply = null;
