@@ -30,28 +30,49 @@ namespace PipeWiseClient
 
                 if (dialog.ShowDialog() == true)
                 {
-                    FilePathTextBox!.Text = dialog.FileName;
-                    var fileInfo = new FileInfo(dialog.FileName);
+                    var filePath = dialog.FileName;
+                    if (!_fileService.IsFileSupported(filePath))
+                    {
+                        _notifications.Warning("????? ?? ????", $"?? ???? ????? ?????? ???? ????? ???? {Path.GetExtension(filePath)}");
+                        return;
+                    }
 
-                    FileInfoTextBlock!.Text = $"קובץ נבחר: {Path.GetFileName(dialog.FileName)} | גודל: {fileInfo.Length:N0} bytes";
+                    FilePathTextBox!.Text = filePath;
+                    var fileInfo = new FileInfo(filePath);
 
-                    AddSuccessNotification(
-                        "קובץ נבחר",
-                        $"נבחר: {Path.GetFileName(dialog.FileName)}",
-                        $"גודל: {fileInfo.Length:N0} bytes\nנתיב: {dialog.FileName}"
-                    );
+                    FileInfoTextBlock!.Text = $"???? ????: {Path.GetFileName(filePath)} | ????: {fileInfo.Length:N0} bytes";
 
                     _loadedConfig = null;
                     _hasCompatibleConfig = false;
                     _hasLastRunReport = false;
 
-                    await LoadFileColumns(dialog.FileName);
+                    _columnNames = await _fileService.DetectColumnsAsync(filePath);
+                    var types = await _fileService.DetectColumnTypesAsync(filePath, _columnNames);
+
+                    _columnSettings.Clear();
+                    foreach (var name in _columnNames)
+                    {
+                        _columnSettings[name] = new ColumnSettings
+                        {
+                            ColumnName = name,
+                            InferredType = types.TryGetValue(name, out var t) ? t : "string"
+                        };
+                    }
+
+                    ShowColumnsInterface();
+
+                    _notifications.Success(
+                        "???? ????",
+                        $"????: {Path.GetFileName(filePath)}",
+                        $"????: {fileInfo.Length:N0} bytes\n????: {filePath}"
+                    );
+
                     SetPhase(UiPhase.FileSelected);
                 }
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בבחירת קובץ", "לא ניתן לבחור את הקובץ", ex.Message);
+                _notifications.Error("שגיאה בבחירת קובץ", "לא ניתן לבחור את הקובץ", ex.Message);
             }
         }
 
@@ -80,7 +101,7 @@ namespace PipeWiseClient
                         LoadXmlColumns(filePath);
                         break;
                     default:
-                        AddWarningNotification("פורמט לא נתמך", $"לא ניתן לטעון עמודות עבור פורמט קובץ {extension}");
+                        _notifications.Warning("פורמט לא נתמך", $"לא ניתן לטעון עמודות עבור פורמט קובץ {extension}");
                         return;
                 }
 
@@ -91,12 +112,12 @@ namespace PipeWiseClient
                 }
                 else
                 {
-                    AddWarningNotification("אין עמודות", "לא נמצאו עמודות בקובץ");
+                    _notifications.Warning("אין עמודות", "לא נמצאו עמודות בקובץ");
                 }
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בטעינת עמודות", "לא ניתן לטעון את עמודות הקובץ", ex.Message);
+                _notifications.Error("שגיאה בטעינת עמודות", "לא ניתן לטעון את עמודות הקובץ", ex.Message);
             }
         }
 
@@ -160,12 +181,12 @@ namespace PipeWiseClient
 
                 if (_columnNames.Count == 0)
                 {
-                    AddWarningNotification("JSON ריק", "לא נמצאו שדות בקובץ JSON");
+                    _notifications.Warning("JSON ריק", "לא נמצאו שדות בקובץ JSON");
                 }
             }
             catch (Exception ex)
             {
-                AddWarningNotification("שגיאה בטעינת JSON", $"לא ניתן לטעון JSON: {ex.Message}");
+                _notifications.Warning("שגיאה בטעינת JSON", $"לא ניתן לטעון JSON: {ex.Message}");
                 _columnNames.Clear();
             }
         }
@@ -194,7 +215,7 @@ namespace PipeWiseClient
                         // אם מצאנו שדות, נסיים
                         if (_columnNames.Count > 0)
                         {
-                            AddInfoNotification("XML נטען", 
+                            _notifications.Info("XML נטען", 
                                 $"נמצאו {_columnNames.Count} שדות ברשומה '{recordTag}'");
                             return;
                         }
@@ -220,19 +241,19 @@ namespace PipeWiseClient
                             .Distinct()
                             .ToList();
                             
-                        AddInfoNotification("XML נותח", 
+                        _notifications.Info("XML נותח", 
                             $"נמצאו {_columnNames.Count} שדות מניתוח מבנה");
                     }
                 }
                 
                 if (_columnNames.Count == 0)
                 {
-                    AddWarningNotification("XML ריק", "לא נמצאו שדות בקובץ XML");
+                    _notifications.Warning("XML ריק", "לא נמצאו שדות בקובץ XML");
                 }
             }
             catch (Exception ex)
             {
-                AddWarningNotification("שגיאה בטעינת XML", $"לא ניתן לטעון XML: {ex.Message}");
+                _notifications.Warning("שגיאה בטעינת XML", $"לא ניתן לטעון XML: {ex.Message}");
                 _columnNames.Clear();
             }
         }
@@ -249,7 +270,8 @@ namespace PipeWiseClient
             {
                 var columnPanel = CreateColumnPanel(columnName);
                 ColumnsPanel.Children.Add(columnPanel);
-                _columnSettings[columnName] = new ColumnSettings();
+                if (!_columnSettings.ContainsKey(columnName))
+                    _columnSettings[columnName] = new ColumnSettings { ColumnName = columnName };
             }
 
             ApplyPendingOperations();
@@ -278,7 +300,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddErrorNotification("❌ Debug Error", "שגיאה בניתוח קונפיגורציה", ex.Message);
+                _notifications.Error("❌ Debug Error", "שגיאה בניתוח קונפיגורציה", ex.Message);
             }
         }
 
@@ -458,6 +480,25 @@ namespace PipeWiseClient
 
                 var settings = _columnSettings[columnName];
 
+                // Strategy pattern hook: prefer registered strategies over legacy handling
+                if (checkBox.IsChecked == true)
+                {
+                    var strategy = _operationRegistry.GetStrategy(operationName);
+                    if (strategy != null)
+                    {
+                        var filePath = FilePathTextBox?.Text ?? string.Empty;
+                        var ok = await strategy.ConfigureAsync(columnName, settings, this, this.ColumnNames, filePath);
+                        if (!ok)
+                        {
+                            checkBox.IsChecked = false;
+                            return;
+                        }
+                        if (!settings.Operations.Contains(operationName))
+                            settings.Operations.Add(operationName);
+                        return;
+                    }
+                }
+
                 if (checkBox.IsChecked == true)
                 {
                     if (OperationRequiresDialog(operationName))
@@ -593,7 +634,7 @@ namespace PipeWiseClient
                             var filePath = FilePathTextBox?.Text?.Trim();
                             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                             {
-                                AddWarningNotification("קובץ חסר", 
+                                _notifications.Warning("קובץ חסר", 
                                     "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
                                 return false;
                             }
@@ -613,7 +654,7 @@ namespace PipeWiseClient
                                     TargetField = dlg.Result.TargetField
                                 };
 
-                                AddSuccessNotification("קידוד קטגוריאלי",
+                                _notifications.Success("קידוד קטגוריאלי",
                                     $"קידוד קטגוריאלי הוגדר עבור שדה '{columnName}' עם {settings.CategoricalEncoding.Mapping.Count} ערכים");
                                 return true;
                             }
@@ -628,7 +669,7 @@ namespace PipeWiseClient
                                 settings.RenameSettings ??= new RenameSettings();
                                 settings.RenameSettings.NewName = dlg.NewName.Trim();
 
-                                AddSuccessNotification("שינוי שם עמודה",
+                                _notifications.Success("שינוי שם עמודה",
                                     $"השדה '{columnName}' ישונה ל-'{dlg.NewName}'");
                                 return true;
                             }
@@ -650,7 +691,7 @@ namespace PipeWiseClient
                                 };
 
                                 var targetFieldsText = string.Join(", ", settings.SplitFieldSettings.TargetFields);
-                                AddSuccessNotification("פיצול שדה",
+                                _notifications.Success("פיצול שדה",
                                     $"השדה '{columnName}' יפוצל ל: {targetFieldsText}");
                                 return true;
                             }
@@ -694,7 +735,7 @@ namespace PipeWiseClient
                                 settings.NormalizeSettings ??= new NormalizeSettings();
                                 settings.NormalizeSettings.TargetField = targetField.Trim();
 
-                                AddSuccessNotification("נרמול נומרי",
+                                _notifications.Success("נרמול נומרי",
                                     $"השדה '{columnName}' ינורמל לשדה '{targetField}'");
                                 return true;
                             }
@@ -714,7 +755,7 @@ namespace PipeWiseClient
                                 settings.CastType ??= new CastTypeSettings();
                                 settings.CastType.ToType = selectedType;
 
-                                AddSuccessNotification("המרת טיפוס",
+                                _notifications.Success("המרת טיפוס",
                                     $"השדה '{columnName}' יומר לטיפוס '{selectedType}'");
                                 return true;
                             }
@@ -722,14 +763,14 @@ namespace PipeWiseClient
                         }
 
                     default:
-                        AddWarningNotification("פעולה לא נתמכת", 
+                        _notifications.Warning("פעולה לא נתמכת", 
                             $"הפעולה '{op}' אינה נתמכת כרגע או אינה דורשת דיאלוג");
                         return false;
                 }
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בפתיחת דיאלוג", 
+                _notifications.Error("שגיאה בפתיחת דיאלוג", 
                     $"לא ניתן לפתוח דיאלוג עבור הפעולה '{op}'", ex.Message);
                 return false;
             }

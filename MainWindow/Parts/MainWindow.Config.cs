@@ -266,7 +266,7 @@ namespace PipeWiseClient
                 }
                 else
                 {
-                    AddInfoNotification("❌", $"לא נמצא: {tag}");
+                    _notifications.Info("❌", $"לא נמצא: {tag}");
                 }
             }
 

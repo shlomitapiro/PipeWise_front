@@ -5,84 +5,26 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using PipeWiseClient.Models;
 
 namespace PipeWiseClient
 {
     public partial class MainWindow
     {
-        // ===== Notifications =====
-        public enum NotificationType
-        {
-            Success,
-            Error,
-            Warning,
-            Info
-        }
-
-        public class NotificationItem
-        {
-            public string Id { get; set; } = Guid.NewGuid().ToString();
-            public NotificationType Type { get; set; }
-            public string Title { get; set; } = string.Empty;
-            public string Message { get; set; } = string.Empty;
-            public DateTime Timestamp { get; set; } = DateTime.Now;
-            public bool IsDetailed { get; set; } = false;
-            public string? Details { get; set; }
-        }
-
-        public void AddSuccessNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Success, title, message, details);
-        }
-
-        public void AddErrorNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Error, title, message, details);
-        }
-
-        public void AddWarningNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Warning, title, message, details);
-        }
-
-        public void AddInfoNotification(string title, string message, string? details = null)
-        {
-            AddNotification(NotificationType.Info, title, message, details);
-        }
-
-        private void AddNotification(NotificationType type, string title, string message, string? details = null)
-        {
-            var notification = new NotificationItem
-            {
-                Type = type,
-                Title = title,
-                Message = message,
-                Details = details,
-                IsDetailed = !string.IsNullOrEmpty(details)
-            };
-
-            _notifications.Insert(0, notification);
-
-            if (_notifications.Count > MAX_NOTIFICATIONS)
-            {
-                _notifications.RemoveAt(_notifications.Count - 1);
-            }
-
-            RefreshNotificationsDisplay();
-        }
-
         private void RefreshNotificationsDisplay()
         {
             if (NotificationsPanel == null) return;
+
+            var notifications = _notifications.Notifications;
 
             NotificationsPanel.Children.Clear();
 
             if (DefaultMessageBorder != null)
             {
-                DefaultMessageBorder.Visibility = _notifications.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+                DefaultMessageBorder.Visibility = notifications.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
             }
 
-            foreach (var notification in _notifications)
+            foreach (var notification in notifications)
             {
                 var notificationElement = CreateNotificationElement(notification);
                 NotificationsPanel.Children.Add(notificationElement);
@@ -204,11 +146,11 @@ namespace PipeWiseClient
         {
             return type switch
             {
-                NotificationType.Success => ("✅", "#D4F4DD", "#28A745", "#155724"),
-                NotificationType.Error => ("❌", "#F8D7DA", "#DC3545", "#721C24"),
-                NotificationType.Warning => ("⚠️", "#FFF3CD", "#FFC107", "#856404"),
-                NotificationType.Info => ("ℹ️", "#CCE7FF", "#007BFF", "#004085"),
-                _ => ("📝", "#F8F9FA", "#6C757D", "#495057")
+                NotificationType.Success => ("?", "#D4F4DD", "#28A745", "#155724"),
+                NotificationType.Error => ("?", "#F8D7DA", "#DC3545", "#721C24"),
+                NotificationType.Warning => ("??", "#FFF3CD", "#FFC107", "#856404"),
+                NotificationType.Info => ("??", "#CCE7FF", "#007BFF", "#004085"),
+                _ => ("??", "#F8F9FA", "#6C757D", "#495057")
             };
         }
 
@@ -216,7 +158,7 @@ namespace PipeWiseClient
         {
             if (NotificationCountBadge == null || NotificationCountText == null) return;
 
-            var count = _notifications.Count;
+            var count = _notifications.Notifications.Count;
 
             if (count > 0)
             {
@@ -233,8 +175,9 @@ namespace PipeWiseClient
         {
             if (SystemStatusText == null) return;
 
-            var icon = isHealthy ? "🟢" : "🔴";
+            var icon = isHealthy ? "??" : "??";
             SystemStatusText.Text = $"{icon} {status}";
         }
     }
 }
+

@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;  // ✅ הוסף
 using PipeWiseClient.Services;
+using PipeWiseClient.Interfaces;
 
 namespace PipeWiseClient.Windows
 {
@@ -18,7 +19,7 @@ namespace PipeWiseClient.Windows
     /// </summary>
     public partial class CategoricalEncodingWindow : Window
     {
-        private readonly ApiClient _apiClient;
+        private readonly IApiClient _apiClient;
         private readonly string _filePath;
         private readonly string _fieldName;
 
@@ -29,7 +30,7 @@ namespace PipeWiseClient.Windows
         public ObservableCollection<MappingValue> MappingValues { get; set; }
         public CategoricalEncodingConfig? Result { get; private set; }
 
-        public CategoricalEncodingWindow(ApiClient apiClient, string filePath, string fieldName)
+        public CategoricalEncodingWindow(IApiClient apiClient, string filePath, string fieldName)
         {
             InitializeComponent();
 

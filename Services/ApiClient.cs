@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using PipeWiseClient.Models;
 
+using PipeWiseClient.Interfaces;
 namespace PipeWiseClient.Services
 {
     public class RunAlreadyStartedException : Exception
@@ -51,7 +52,7 @@ namespace PipeWiseClient.Services
         public string Message { get; set; } = string.Empty;
     }
 
-    public class ApiClient : IDisposable
+    public class ApiClient : IApiClient, IDisposable
     {
         private readonly HttpClient _http;
 
@@ -210,9 +211,9 @@ namespace PipeWiseClient.Services
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new Exception($"Error scanning field values: {ex.Message}", ex);
+                throw;
             }
         }
 
@@ -231,7 +232,34 @@ namespace PipeWiseClient.Services
 
             var res = await _http.PostAsync("runs", payload, ct);
 
-            res.EnsureSuccessStatusCode();
+            if (!res.IsSuccessStatusCode)
+            {
+                var rawErr = await res.Content.ReadAsStringAsync(ct);
+                System.Diagnostics.Debug.WriteLine($"StartRunAsync: non-success {(int)res.StatusCode} {res.StatusCode}. Body prefix: {rawErr?.Substring(0, System.Math.Min(120, rawErr?.Length ?? 0))}");
+
+                // Only treat 409 Conflict as an existing active run (server-side duplicate prevention)
+                if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    try
+                    {
+                        using var errDoc = System.Text.Json.JsonDocument.Parse(rawErr);
+                        var rootErr = errDoc.RootElement;
+                        string? existingRunId = null;
+                        if (rootErr.TryGetProperty("run_id", out var e1)) existingRunId = e1.GetString();
+                        else if (rootErr.TryGetProperty("runId", out var e2)) existingRunId = e2.GetString();
+                        else if (rootErr.TryGetProperty("id", out var e3)) existingRunId = e3.GetString();
+                        if (!string.IsNullOrWhiteSpace(existingRunId))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"StartRunAsync: using existing active run_id={existingRunId}");
+                            return new RunStartResponse { RunId = existingRunId! };
+                        }
+                    }
+                    catch { /* ignore parse errors; will fall through to EnsureSuccessStatusCode */ }
+                }
+
+                // Not a duplicate active run; surface the error
+                res.EnsureSuccessStatusCode();
+            }
 
             var raw = await res.Content.ReadAsStringAsync(ct);
             // פרסור גמיש: run_id / runId / id
@@ -464,15 +492,12 @@ namespace PipeWiseClient.Services
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // אם כבר יש runId – אל תאפשר fallback כפול; תן ל-UI לדעת שהריצה החלה.
-                if (!string.IsNullOrEmpty(runId))
-                    throw new RunAlreadyStartedException(runId, ex);
+                // Parallel runs: bubble original exception.
                 throw;
             }
         }
-
         // ------------------ Ad-hoc run (/run-pipeline) ------------------
         public async Task<RunPipelineResult> RunAdHocPipelineAsync(
             string filePath,

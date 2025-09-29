@@ -47,10 +47,7 @@ namespace PipeWiseClient
 
             Btn("RunBtn").Let((Button b) =>
             {
-                var canRun =
-                    _hasFile &&
-                    _phase != UiPhase.Running &&
-                    (_loadedConfig == null || _hasCompatibleConfig);
+                var canRun = _hasFile && (_loadedConfig == null || _hasCompatibleConfig);
 
                 b.IsEnabled = canRun;
 
@@ -60,7 +57,7 @@ namespace PipeWiseClient
             });
 
             Btn("RunSavedPipelineBtn").Let((Button b) =>
-                b.IsEnabled = _phase != UiPhase.Running);
+                b.IsEnabled = true);
 
             Btn("SaveAsServerPipelineBtn").Let((Button b) =>
                 b.IsEnabled = (_hasFile || _loadedConfig != null) && _phase != UiPhase.Running);
