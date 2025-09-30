@@ -3,6 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              >
   <Application.Resources>
+    <!-- RTL checkbox template: bullet on right, text on left -->
+    <Style TargetType="CheckBox">
+      <Setter Property="FlowDirection" Value="RightToLeft"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+    </Style>
 
     <!-- ========= צבעים (Gradient: Normal/Hover/Pressed) ========= -->
     <!-- Blue -->
