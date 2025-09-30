@@ -7,7 +7,47 @@
     <Style TargetType="CheckBox">
       <Setter Property="FlowDirection" Value="RightToLeft"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
-      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Margin" Value="0,0,15,0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <BulletDecorator FlowDirection="RightToLeft">
+              <BulletDecorator.Bullet>
+                <Grid Width="11" Height="11">
+                  <Border x:Name="BulletBorder"
+                          CornerRadius="2"
+                          BorderThickness="1"
+                          BorderBrush="#777"
+                          Background="White"/>
+                  <TextBlock x:Name="CheckGlyph"
+                             Text="✔"
+                             FontFamily="Segoe UI Symbol"
+                             FontSize="12"
+                             FontWeight="SemiBold"
+                             Foreground="White"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             Visibility="Collapsed"/>
+                </Grid>
+              </BulletDecorator.Bullet>
+              <ContentPresenter x:Name="content"
+                                RecognizesAccessKey="True"
+                                VerticalAlignment="Center"
+                                Margin="0,0,20,0"/>
+            </BulletDecorator>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="BulletBorder" Property="Background" Value="#1F7A1F"/>
+                <Setter TargetName="BulletBorder" Property="BorderBrush" Value="#1F7A1F"/>
+                <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.6"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
     <!-- ========= צבעים (Gradient: Normal/Hover/Pressed) ========= -->
