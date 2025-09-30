@@ -375,25 +375,18 @@ namespace PipeWiseClient.Services
 
             try
             {
-                _notifications.Info("הרצת Pipeline", "מתחיל ביצוע...");
                 localTaskRef = _api.RunWithProgressAsync(config, progress, TimeSpan.FromMilliseconds(500), cancellationToken);
                 lock (_runSync) { _inFlightRunTask = localTaskRef; }
 
                 var result = await localTaskRef;
-                if (string.Equals(result.status, "success", StringComparison.OrdinalIgnoreCase))
-                    _notifications.Success("Pipeline הושלם", result.message);
-                else
-                    _notifications.Error("Pipeline נכשל", result.message);
                 return result;
             }
             catch (OperationCanceledException)
             {
-                _notifications.Warning("Pipeline בוטל", "הפעולה בוטלה על ידי המשתמש.");
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _notifications.Error("שגיאה בהרצה", ex.Message, ex.StackTrace);
                 throw;
             }
             finally
@@ -423,5 +416,7 @@ namespace PipeWiseClient.Services
         }
     }
 }
+
+
 
 

@@ -222,6 +222,27 @@ namespace PipeWiseClient
                     }
                 }
 
+                // If strip_whitespace was specified for all detected columns, reflect it as a global action too
+                try
+                {
+                    var detectedCols = new HashSet<string>(_columnNames ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                    if (detectedCols.Count > 0)
+                    {
+                        var swCols = new HashSet<string>(
+                            perColumnOps.Where(op => string.Equals(op.action, "strip_whitespace", StringComparison.OrdinalIgnoreCase))
+                                        .Select(op => op.column),
+                            StringComparer.OrdinalIgnoreCase);
+                        if (swCols.Count > 0 && detectedCols.SetEquals(swCols))
+                        {
+                            globalActions.Add("strip_whitespace");
+                        }
+                    }
+                }
+                catch { }
+
+                // We do not support per-column checkboxes for strip_whitespace; avoid spurious alerts by removing them
+                perColumnOps.RemoveAll(op => string.Equals(op.action, "strip_whitespace", StringComparison.OrdinalIgnoreCase));
+
                 if (RemoveEmptyRowsCheckBox != null)
                     RemoveEmptyRowsCheckBox.IsChecked = globalActions.Contains("remove_empty_rows");
 
