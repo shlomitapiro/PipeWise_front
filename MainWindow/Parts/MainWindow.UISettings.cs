@@ -42,7 +42,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddWarningNotification("שמירת הגדרות", "לא ניתן לשמור הגדרות ממשק", ex.Message);
+                _notifications.Warning("שמירת הגדרות", "לא ניתן לשמור הגדרות ממשק", ex.Message);
             }
         }
 
@@ -77,7 +77,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddWarningNotification("טעינת הגדרות", "לא ניתן לטעון הגדרות ממשק, נטענות ברירות מחדל", ex.Message);
+                _notifications.Warning("טעינת הגדרות", "לא ניתן לטעון הגדרות ממשק, נטענות ברירות מחדל", ex.Message);
             }
         }
 
@@ -128,7 +128,7 @@ namespace PipeWiseClient
                     CollapseNotificationsBtn.Content = "📦";
                 }
 
-                AddSuccessNotification("איפוס ממשק", "ממשק המשתמש הוחזר לברירת מחדל");
+                _notifications.Success("איפוס ממשק", "ממשק המשתמש הוחזר לברירת מחדל");
 
                 _loadedConfig = null;
                 _hasCompatibleConfig = false;
@@ -137,7 +137,7 @@ namespace PipeWiseClient
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה באיפוס ממשק", "לא ניתן לאפס את ממשק המשתמש", ex.Message);
+                _notifications.Error("שגיאה באיפוס ממשק", "לא ניתן לאפס את ממשק המשתמש", ex.Message);
             }
         }
 
@@ -188,13 +188,13 @@ namespace PipeWiseClient
                 {
                     var debugInfo = string.Join("\n", profileResult.Columns.Select(c =>
                         $"{c.Name}: {c.InferredType}"));
-                    AddInfoNotification("DEBUG - סוגי עמודות", debugInfo);
+                    _notifications.Info("DEBUG - סוגי עמודות", debugInfo);
                 }
                 #endif
             }
             catch (Exception ex)
             {
-                AddWarningNotification("זיהוי סוגי עמודות", "לא ניתן לזהות סוגי עמודות", ex.Message);
+                _notifications.Warning("זיהוי סוגי עמודות", "לא ניתן לזהות סוגי עמודות", ex.Message);
             }
         }
     }

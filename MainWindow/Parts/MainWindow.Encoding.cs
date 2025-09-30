@@ -18,7 +18,7 @@ namespace PipeWiseClient
                 var filePath = FilePathTextBox.Text?.Trim();
                 if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                 {
-                    AddWarningNotification("קובץ חסר",
+                    _notifications.Warning("קובץ חסר",
                         "יש לבחור קובץ תקין לפני הגדרת קידוד קטגוריאלי");
                     return;
                 }
@@ -44,13 +44,13 @@ namespace PipeWiseClient
                     var settings = _columnSettings[fieldName];
                     settings.CategoricalEncoding = mapped;
 
-                    AddSuccessNotification("קידוד קטגוריאלי",
+                    _notifications.Success("קידוד קטגוריאלי",
                         $"קידוד קטגוריאלי הוגדר עבור שדה '{fieldName}' עם {mapped.Mapping.Count} ערכים");
                 }
             }
             catch (Exception ex)
             {
-                AddErrorNotification("שגיאה בקידוד קטגוריאלי",
+                _notifications.Error("שגיאה בקידוד קטגוריאלי",
                     "לא ניתן לפתוח חלון קידוד קטגוריאלי", ex.Message);
             }
         }
