@@ -133,14 +133,35 @@ namespace PipeWiseClient.Services
             try
             {
                 var doc = System.Xml.Linq.XDocument.Parse(text);
+
+                // Heuristic 1: common record containers (prefer leaf children)
+                var commonRecordTags = new[] { "record", "item", "row", "entry", "data", "records", "items", "rows" };
+                foreach (var tag in commonRecordTags)
+                {
+                    var rec = doc
+                        .Descendants(tag)
+                        .FirstOrDefault(e => e.HasElements && e.Elements().Any() && e.Elements().All(c => !c.HasElements));
+                    if (rec != null)
+                    {
+                        foreach (var el in rec.Elements()) cols.Add(el.Name.LocalName);
+                        if (cols.Count > 0) return cols.ToList();
+                    }
+                }
+
+                // Heuristic 2: pick an element whose children are leaf elements (avoid selecting the root collection like <records>)
                 var candidates = doc.Descendants().Where(e => e.HasElements && e.Elements().Any()).ToList();
-                var best = candidates.OrderByDescending(e => e.Elements().Count()).FirstOrDefault();
+                var best = candidates
+                    .Where(e => e.Elements().All(c => !c.HasElements))
+                    .OrderByDescending(e => e.Elements().Count())
+                    .FirstOrDefault();
+                best ??= candidates.OrderByDescending(e => e.Elements().Count()).FirstOrDefault();
+
                 if (best != null)
                 {
                     foreach (var el in best.Elements()) cols.Add(el.Name.LocalName);
                 }
             }
-            catch { /* ignore */ }
+            catch { /* ignore parse issues, return what we have */ }
             return cols.ToList();
         }
 

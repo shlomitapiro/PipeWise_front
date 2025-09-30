@@ -331,7 +331,7 @@ namespace PipeWiseClient.Services
 
                     if (operation.StartsWith("remove_") || operation.StartsWith("replace_") || operation == "strip_whitespace" || operation == "set_numeric_range" || operation == "set_date_format")
                         cleaningOps.Add(opDict);
-                    else if (operation == "cast_type" || operation == "normalize_numeric" || operation == "rename_field" || operation == "merge_columns" || operation == "split_field" || operation == "to_uppercase" || operation == "to_lowercase")
+                    else if (operation == "cast_type" || operation == "normalize_numeric" || operation == "rename_field" || operation == "merge_columns" || operation == "split_field" || operation == "categorical_encoding" || operation == "to_uppercase" || operation == "to_lowercase")
                         transformOps.Add(opDict);
                     else if (operation.StartsWith("validate_") || operation == "required_fields")
                         cleaningOps.Add(opDict);
@@ -360,8 +360,7 @@ namespace PipeWiseClient.Services
 
             return new PipelineConfig { Source = src, Processors = processors.ToArray(), Target = target };
         }
-
-                public async Task<RunPipelineResult> ExecuteAsync(PipelineConfig config, IProgress<(string Status, int Percent)>? progress = null, CancellationToken cancellationToken = default)
+        public async Task<RunPipelineResult> ExecuteAsync(PipelineConfig config, IProgress<(string Status, int Percent)>? progress = null, CancellationToken cancellationToken = default)
         {
             Task<RunPipelineResult>? localTaskRef = null;
             lock (_runSync)
@@ -376,25 +375,25 @@ namespace PipeWiseClient.Services
 
             try
             {
-                _notifications.Info("????? Pipeline", "????? ?????...");
+                _notifications.Info("הרצת Pipeline", "מתחיל ביצוע...");
                 localTaskRef = _api.RunWithProgressAsync(config, progress, TimeSpan.FromMilliseconds(500), cancellationToken);
                 lock (_runSync) { _inFlightRunTask = localTaskRef; }
 
                 var result = await localTaskRef;
                 if (string.Equals(result.status, "success", StringComparison.OrdinalIgnoreCase))
-                    _notifications.Success("Pipeline ?????", result.message);
+                    _notifications.Success("Pipeline הושלם", result.message);
                 else
-                    _notifications.Error("Pipeline ????", result.message);
+                    _notifications.Error("Pipeline נכשל", result.message);
                 return result;
             }
             catch (OperationCanceledException)
             {
-                _notifications.Warning("Pipeline ????", "?????? ???? ?? ?????.");
+                _notifications.Warning("Pipeline בוטל", "הפעולה בוטלה על ידי המשתמש.");
                 throw;
             }
             catch (Exception ex)
             {
-                _notifications.Error("????? ????", ex.Message, ex.StackTrace);
+                _notifications.Error("שגיאה בהרצה", ex.Message, ex.StackTrace);
                 throw;
             }
             finally
@@ -408,7 +407,8 @@ namespace PipeWiseClient.Services
                     }
                 }
             }
-        }public async Task<PipelineConfig?> LoadConfigAsync(string configPath)
+        }
+        public async Task<PipelineConfig?> LoadConfigAsync(string configPath)
             => await _repository.LoadAsync(configPath);
 
         public async Task SaveConfigAsync(PipelineConfig config, string configPath)

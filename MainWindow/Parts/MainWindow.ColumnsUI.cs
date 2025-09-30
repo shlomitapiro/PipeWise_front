@@ -33,14 +33,14 @@ namespace PipeWiseClient
                     var filePath = dialog.FileName;
                     if (!_fileService.IsFileSupported(filePath))
                     {
-                        _notifications.Warning("????? ?? ????", $"?? ???? ????? ?????? ???? ????? ???? {Path.GetExtension(filePath)}");
+                        _notifications.Warning("פורמט לא נתמך", $"לא ניתן לטעון עמודות עבור פורמט קובץ {Path.GetExtension(filePath)}");
                         return;
                     }
 
                     FilePathTextBox!.Text = filePath;
                     var fileInfo = new FileInfo(filePath);
 
-                    FileInfoTextBlock!.Text = $"???? ????: {Path.GetFileName(filePath)} | ????: {fileInfo.Length:N0} bytes";
+                    FileInfoTextBlock!.Text = $"קובץ נבחר: {Path.GetFileName(filePath)} | גודל: {fileInfo.Length:N0} bytes";
 
                     _loadedConfig = null;
                     _hasCompatibleConfig = false;
@@ -62,9 +62,9 @@ namespace PipeWiseClient
                     ShowColumnsInterface();
 
                     _notifications.Success(
-                        "???? ????",
-                        $"????: {Path.GetFileName(filePath)}",
-                        $"????: {fileInfo.Length:N0} bytes\n????: {filePath}"
+                        "קובץ נטען",
+                        $"שם: {Path.GetFileName(filePath)}",
+                        $"גודל: {fileInfo.Length:N0} bytes\nנתיב: {filePath}"
                     );
 
                     SetPhase(UiPhase.FileSelected);

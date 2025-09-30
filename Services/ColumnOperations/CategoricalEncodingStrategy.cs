@@ -12,7 +12,7 @@ namespace PipeWiseClient.Services.ColumnOperations
         public string OperationName => "categorical_encoding";
         public string DisplayName => "קידוד קטגוריאלי";
         public string Description => "מפה ערכים קטגוריאליים למספרים";
-        public string Category => "Validation";
+        public string Category => "Transform";
         public bool RequiresConfiguration => true;
 
         private readonly IDialogFactory _dialogs;
