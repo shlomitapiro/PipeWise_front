@@ -242,7 +242,10 @@ namespace PipeWiseClient.Services
                 {
                     try
                     {
-                        using var errDoc = System.Text.Json.JsonDocument.Parse(rawErr);
+                        if (string.IsNullOrWhiteSpace(rawErr))
+                            res.EnsureSuccessStatusCode();
+                            
+                        using var errDoc = System.Text.Json.JsonDocument.Parse(rawErr!);
                         var rootErr = errDoc.RootElement;
                         string? existingRunId = null;
                         if (rootErr.TryGetProperty("run_id", out var e1)) existingRunId = e1.GetString();
@@ -284,6 +287,7 @@ namespace PipeWiseClient.Services
         public async Task<RunProgressResponse> GetRunProgressAsync(string runId, CancellationToken ct = default)
         {
             var dto = await _http.GetFromJsonAsync<RunProgressResponse>($"runs/{runId}/progress", ct);
+            System.Diagnostics.Debug.WriteLine($"Poll response: Status={dto?.Status}, Percent={dto?.Percent}");
             return dto ?? new RunProgressResponse { Status = "unknown", Percent = 0 };
         }
 
