@@ -25,7 +25,7 @@ namespace PipeWiseClient.Services.ColumnOperations
             return new Dictionary<string, object>
             {
                 ["action"] = "remove_column",
-                ["column"] = columnName
+                ["fields"] = new[] { columnName } 
             };
         }
     }
