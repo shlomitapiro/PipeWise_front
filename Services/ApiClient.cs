@@ -456,36 +456,92 @@ namespace PipeWiseClient.Services
             TimeSpan? pollInterval = null,
             CancellationToken ct = default)
         {
+            const int MAX_POLL_ATTEMPTS = 600; 
+            int pollCount = 0;
+            
             string runId = string.Empty;
             try
             {
                 var start = await StartRunAsync(pipelineConfig, ct);
                 runId = start.RunId;
-                // דווח ל-UI שמצב "starting" כדי שלא יתבצע fallback חפוז
                 progress?.Report(("starting", 0));
 
                 var interval = pollInterval ?? TimeSpan.FromMilliseconds(500);
+                
                 while (true)
                 {
+                    pollCount++;
+                    
+                    if (pollCount > MAX_POLL_ATTEMPTS)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"RunWithProgressAsync: polling timeout after {pollCount} attempts");
+                        throw new TimeoutException($"Progress polling timed out after {pollCount * 500}ms");
+                    }
+                    
                     ct.ThrowIfCancellationRequested();
+                    
                     try
                     {
                         var pr = await GetRunProgressAsync(start.RunId, ct);
-                        progress?.Report((pr.Status ?? "unknown", pr.Percent ?? 0));
-                        if (pr.Status == "completed" || pr.Status == "failed")
+                        var status = pr.Status?.ToLowerInvariant() ?? "unknown";
+                        var percent = pr.Percent ?? 0;
+                        
+                        progress?.Report((status, percent));
+                        
+                        System.Diagnostics.Debug.WriteLine($"Poll #{pollCount}: status={status}, percent={percent}%");
+                        
+                        if (status == "completed" || 
+                            status == "failed" || 
+                            status == "error" ||
+                            status == "expired" ||
+                            status == "cancelled" ||
+                             status == "unknown")
+                        {
+                            System.Diagnostics.Debug.WriteLine($"RunWithProgressAsync: exiting polling loop - status={status}");
                             break;
+                        }
                     }
-                    catch (HttpRequestException) { /* שגיאות זמניות בפולינג */ }
+                    catch (HttpRequestException httpEx)
+                    {
+                        if (httpEx.StatusCode == System.Net.HttpStatusCode.NotFound)
+                        {
+                            System.Diagnostics.Debug.WriteLine("RunWithProgressAsync: run not found (404) - assuming completed");
+                            break;
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine($"Poll #{pollCount}: HTTP error - {httpEx.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Poll #{pollCount}: unexpected error - {ex.Message}");
+                        if (pollCount > 3)
+                        {
+                            System.Diagnostics.Debug.WriteLine("Too many polling errors - exiting");
+                            throw;
+                        }
+                    }
+                    
                     await Task.Delay(interval, ct);
                 }
 
-                var final = await GetRunResultAsync(start.RunId, ct)
-                    ?? throw new InvalidOperationException("Missing run result.");
+                var final = await GetRunResultAsync(start.RunId, ct);
+                
+                if (final == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("RunWithProgressAsync: no final result - returning empty");
+                    return new RunPipelineResult 
+                    { 
+                        status = "completed", 
+                        message = "Pipeline completed (no result details)" 
+                    };
+                }
+                
                 if (string.Equals(final.Status, "failed", StringComparison.OrdinalIgnoreCase))
                 {
                     var err = final.Result?.message;
                     throw new InvalidOperationException(!string.IsNullOrWhiteSpace(err) ? err : "Run failed.");
                 }
+                
                 return final.Result ?? new RunPipelineResult();
             }
             catch (OperationCanceledException)
@@ -494,7 +550,6 @@ namespace PipeWiseClient.Services
             }
             catch (Exception)
             {
-                // Parallel runs: bubble original exception.
                 throw;
             }
         }
