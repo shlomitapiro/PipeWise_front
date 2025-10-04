@@ -270,6 +270,7 @@ namespace PipeWiseClient.Services
                         if (s != null && s.SourceColumns.Count >= 2 && !string.IsNullOrWhiteSpace(s.TargetColumn))
                         {
                             opDict["action"] = "merge_columns";
+                            opDict["column"] = columnName;
                             opDict["source_columns"] = s.SourceColumns.ToArray();
                             opDict["target_column"] = s.TargetColumn;
                             opDict["separator"] = s.Separator;

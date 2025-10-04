@@ -47,6 +47,7 @@ namespace PipeWiseClient.Services.ColumnOperations
             return new Dictionary<string, object>
             {
                 ["action"] = "merge_columns",
+                ["column"] = columnName,
                 ["source_columns"] = s.SourceColumns.ToArray(),
                 ["target_column"] = s.TargetColumn,
                 ["separator"] = s.Separator,
