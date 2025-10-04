@@ -91,8 +91,12 @@ namespace PipeWiseClient.Services
             {
                 foreach (var col in columnsToRemove)
                 {
-                    cleaningOps.Add(new Dictionary<string, object> { ["action"] = "remove_column", ["column"] = col });
+                    cleaningOps.Add(new Dictionary<string, object> { 
+                        ["action"] = "remove_column", 
+                        ["fields"] = new[] { col } 
+                    });
                 }
+
             }
 
             foreach (var kvp in columnSettings)
