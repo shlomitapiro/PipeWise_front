@@ -27,6 +27,7 @@ namespace PipeWiseClient.Interfaces
         Task<PipelineResponse?> GetPipelineAsync(string id, CancellationToken ct = default);
         Task<PipelineResponse> CreatePipelineAsync(PipelineConfig config, string? name = null, string? description = null, CancellationToken ct = default);
         Task<PipelineResponse> UpdatePipelineAsync(string id, PipelineConfig config, CancellationToken ct = default);
+        Task<PipelineResponse> UpdatePipelineNameAsync(string id, string newName, CancellationToken ct = default);
         Task DeletePipelineAsync(string id, CancellationToken ct = default);
         Task<RunPipelineResult> RunPipelineByIdAsync(string id, string? filePath = null, object? overridesObj = null, RunReportSettings? report = null, CancellationToken ct = default);
 

@@ -89,6 +89,46 @@ namespace PipeWiseClient.Windows
             }
         }
 
+        private async void RenameSelected_Click(object sender, RoutedEventArgs e)
+        {
+            if (PipelinesList.SelectedItem is not PipelineSummary sel)
+            {
+                MessageBox.Show("בחר פייפליין לשינוי שם.", "מידע",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var dlg = new PipelineNameDialog(sel.name)
+            {
+                Owner = this,
+                Title = "שינוי שם פייפליין"
+            };
+            
+            var ok = dlg.ShowDialog() == true;
+            if (!ok || string.IsNullOrWhiteSpace(dlg.PipelineName))
+                return;
+
+            if (dlg.PipelineName.Trim() == sel.name)
+            {
+                MessageBox.Show("השם החדש זהה לשם הקיים.", "מידע",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                await _api.UpdatePipelineNameAsync(sel.id, dlg.PipelineName.Trim());
+                MessageBox.Show($"שם הפייפליין שונה בהצלחה ל-'{dlg.PipelineName}'", "הצלחה",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"שינוי השם נכשל: {ex.Message}", "שגיאה",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private void PipelinesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (PipelinesList.SelectedItem is PipelineSummary)

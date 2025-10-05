@@ -52,24 +52,16 @@
           </TextBlock>
         </Grid>
 
-        <!-- רענן -->
         <Button Grid.Column="1"
-                Content="רענן"
+                Content="חפש"
                 Margin="0,0,8,0"
                 Click="Refresh_Click"
                 Height="34"
                 MinWidth="100"/>
 
-        <!-- טיפ -->
-        <TextBlock Grid.Column="2"
-                   VerticalAlignment="Center"
-                   Foreground="#6C757D"
-                   FontSize="11"
-                   Text="טיפ: Enter=בחר, Delete=מחק, דאבל־קליק=בחר"/>
       </Grid>
     </Border>
 
-    <!-- רשימת פייפליינים -->
     <Border BorderBrush="#E1E5E9"
             BorderThickness="1"
             CornerRadius="6"
@@ -97,6 +89,8 @@
           <ListView.ContextMenu>
             <ContextMenu>
               <MenuItem Header="הרץ פייפליין" Click="RunSelected_Click"/>
+              <MenuItem Header="שנה שם" Click="RenameSelected_Click"/>
+              <Separator/>
               <MenuItem Header="מחק" Click="DeleteSelected_Click"/>
             </ContextMenu>
           </ListView.ContextMenu>
