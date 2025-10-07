@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Interfaces
 {
@@ -14,6 +15,6 @@ namespace PipeWiseClient.Interfaces
         Windows.RenameColumnDialog CreateRenameColumnDialog(string currentName, System.Collections.Generic.List<string> existingColumns);
         Windows.MergeColumnsDialog CreateMergeColumnsDialog(System.Collections.Generic.List<string> availableColumns, string currentColumn);
         Windows.SplitFieldWindow CreateSplitFieldWindow(string fieldName, System.Collections.Generic.List<string> existingFields);
-        Windows.CategoricalEncodingWindow CreateCategoricalEncodingWindow(PipeWiseClient.Interfaces.IApiClient apiClient, string filePath, string fieldName);
+        Windows.CategoricalEncodingWindow CreateCategoricalEncodingWindow(PipeWiseClient.Interfaces.IApiClient apiClient, string filePath, string fieldName, ColumnSettings columnSettings);
     }
 }

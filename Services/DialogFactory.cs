@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using PipeWiseClient.Interfaces;
+using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Services
 {
@@ -55,9 +56,9 @@ namespace PipeWiseClient.Services
             return dlg;
         }
 
-        public Windows.CategoricalEncodingWindow CreateCategoricalEncodingWindow(PipeWiseClient.Interfaces.IApiClient apiClient, string filePath, string fieldName)
+        public Windows.CategoricalEncodingWindow CreateCategoricalEncodingWindow(PipeWiseClient.Interfaces.IApiClient apiClient, string filePath, string fieldName, ColumnSettings columnSettings)
         {
-            var dlg = new Windows.CategoricalEncodingWindow(apiClient, filePath, fieldName);
+            var dlg = new Windows.CategoricalEncodingWindow(apiClient, filePath, fieldName, columnSettings);
             if (_owner != null) dlg.Owner = _owner;
             return dlg;
         }

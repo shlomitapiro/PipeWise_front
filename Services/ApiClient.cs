@@ -220,11 +220,24 @@ namespace PipeWiseClient.Services
         // ------------------ Jobs API (Start → Progress → Result) ------------------
         public async Task<RunStartResponse> StartRunAsync(object pipelineConfig, CancellationToken ct = default)
         {
+            string? pipelineName = null;
+            try
+            {
+                var t = pipelineConfig.GetType();
+                pipelineName =
+                    t.GetProperty("Name")?.GetValue(pipelineConfig)?.ToString()
+                ?? t.GetProperty("name")?.GetValue(pipelineConfig)?.ToString()
+                ?? t.GetProperty("Title")?.GetValue(pipelineConfig)?.ToString()
+                ?? t.GetProperty("title")?.GetValue(pipelineConfig)?.ToString()
+                ?? (pipelineConfig is PipelineConfig pcName ? pcName.Name : null);
+            }
+            catch { /* best-effort only */ }
             var normalized = new
             {
                 source = NormalizeForHttp(pipelineConfig is PipelineConfig pc ? pc.Source : pipelineConfig.GetType().GetProperty("Source")?.GetValue(pipelineConfig)),
                 processors = NormalizeForHttp(pipelineConfig is PipelineConfig pc2 ? pc2.Processors : pipelineConfig.GetType().GetProperty("Processors")?.GetValue(pipelineConfig)),
                 target = NormalizeForHttp(pipelineConfig is PipelineConfig pc3 ? pc3.Target : pipelineConfig.GetType().GetProperty("Target")?.GetValue(pipelineConfig)),
+                 name = string.IsNullOrWhiteSpace(pipelineName) ? null : pipelineName
             };
 
             var json = Newtonsoft.Json.JsonConvert.SerializeObject(normalized);
@@ -402,6 +415,29 @@ namespace PipeWiseClient.Services
 
             var parsed = await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
             return parsed ?? throw new InvalidOperationException("Empty or invalid server response for UpdatePipelineAsync.");
+        }
+
+        public async Task<PipelineResponse> UpdatePipelineNameAsync(string id, string newName, CancellationToken ct = default)
+        {
+            var current = await GetPipelineAsync(id, ct);
+            if (current?.pipeline == null)
+                throw new InvalidOperationException($"Pipeline {id} not found");
+
+            var updateBody = new Dictionary<string, object?>
+            {
+                ["id"] = id,
+                ["name"] = newName,
+                ["source"] = NormalizeForHttp(current.pipeline.Source),
+                ["processors"] = NormalizeForHttp(current.pipeline.Processors),
+                ["target"] = NormalizeForHttp(current.pipeline.Target),
+            };
+
+            var payload = JsonContent.Create(updateBody);
+            var res = await _http.PutAsync($"pipelines/{id}", payload, ct);
+            res.EnsureSuccessStatusCode();
+
+            var parsed = await res.Content.ReadFromJsonAsync<PipelineResponse>(cancellationToken: ct);
+            return parsed ?? throw new InvalidOperationException("Empty or invalid server response for UpdatePipelineNameAsync.");
         }
 
         public async Task DeletePipelineAsync(string id, CancellationToken ct = default)
@@ -583,10 +619,12 @@ namespace PipeWiseClient.Services
             fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
             form.Add(fileContent, "file", Path.GetFileName(filePath));
 
-            var cfgBody = new {
-                source     = NormalizeForHttp(config.Source),
+            var cfgBody = new
+            {
+                source = NormalizeForHttp(config.Source),
                 processors = NormalizeForHttp(config.Processors),
-                target     = NormalizeForHttp(config.Target),
+                target = NormalizeForHttp(config.Target),
+                name = string.IsNullOrWhiteSpace(config.Name) ? null : config.Name
             };
             var configJson = Newtonsoft.Json.JsonConvert.SerializeObject(cfgBody);
             form.Add(new StringContent(configJson, Encoding.UTF8, "application/json"), "config");

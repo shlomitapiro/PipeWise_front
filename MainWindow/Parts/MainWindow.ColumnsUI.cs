@@ -639,7 +639,7 @@ namespace PipeWiseClient
                                 return false;
                             }
 
-                            var dlg = new Windows.CategoricalEncodingWindow(_api, filePath, columnName) { Owner = this };
+                            var dlg = new Windows.CategoricalEncodingWindow(_api, filePath, columnName, settings) { Owner = this };
                             if (dlg.ShowDialog() == true && dlg.Result != null)
                             {
                                 settings.CategoricalEncoding = new PipeWiseClient.Models.CategoricalEncodingConfig

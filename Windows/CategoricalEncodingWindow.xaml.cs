@@ -3,49 +3,46 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
-using System.IO;  // ✅ הוסף
+using System.IO; 
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Data;
-using System.Windows.Media;  // ✅ הוסף
+using System.Windows.Media; 
 using PipeWiseClient.Services;
 using PipeWiseClient.Interfaces;
+using PipeWiseClient.Models;
 
 namespace PipeWiseClient.Windows
 {
-    /// <summary>
-    /// חלון להגדרת קידוד קטגוריאלי
-    /// </summary>
     public partial class CategoricalEncodingWindow : Window
     {
         private readonly IApiClient _apiClient;
         private readonly string _filePath;
         private readonly string _fieldName;
-
-        // צבעים קבועים
+        private readonly ColumnSettings _columnSettings;
         private static readonly SolidColorBrush NormalBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x49, 0x5E));
         private static readonly SolidColorBrush SuccessBrush = new SolidColorBrush(Colors.Green);
 
         public ObservableCollection<MappingValue> MappingValues { get; set; }
         public CategoricalEncodingConfig? Result { get; private set; }
 
-        public CategoricalEncodingWindow(IApiClient apiClient, string filePath, string fieldName)
+        public CategoricalEncodingWindow(IApiClient apiClient, string filePath, string fieldName, ColumnSettings columnSettings)
         {
             InitializeComponent();
 
             _apiClient = apiClient;
             _filePath = filePath;
             _fieldName = fieldName;
+            _columnSettings = columnSettings;
 
             MappingValues = new ObservableCollection<MappingValue>();
             MappingListView.ItemsSource = MappingValues;
 
-            // הגדרת אירועים
             CreateNewFieldRadio.Checked += OnTargetModeChanged;
             ReplaceFieldRadio.Checked += OnTargetModeChanged;
 
-            // טעינת הערכים הייחודיים
+            _columnSettings = columnSettings;
             LoadUniqueValues();
         }
 
@@ -67,9 +64,11 @@ namespace PipeWiseClient.Windows
 
                 UpdateLoadingStatus($"מעבד שדה '{scanResult.FieldName}'...");
 
-                // הגדרת מידע על השדה
+                bool hasUppercase = _columnSettings.Operations.Contains("to_uppercase");
+                bool hasLowercase = _columnSettings.Operations.Contains("to_lowercase");
+
                 FieldInfoTextBlock.Text = $"שדה: {scanResult.FieldName}";
-                ValuesCountTextBlock.Text = $"{scanResult.UniqueValues.Count} ערכים ייחודיים, {scanResult.TotalRows} שורות סה\"כ";
+                ValuesCountTextBlock.Text = $"{scanResult.UniqueValues.Count} ערכים ייחודיים במקור";
 
                 if (scanResult.Truncated)
                 {
@@ -78,24 +77,61 @@ namespace PipeWiseClient.Windows
 
                 UpdateLoadingStatus("יוצר רשימת מיפוי...");
 
-                // יצירת רשימת המיפוי
+                var uniqueTransformedValues = new HashSet<string>();
+                var originalValueExamples = new Dictionary<string, string>();
+                
+                foreach (var value in scanResult.UniqueValues)
+                {
+                    string transformedValue = value;
+                    
+                    if (hasUppercase)
+                    {
+                        transformedValue = value.ToUpperInvariant();
+                    }
+                    else if (hasLowercase)
+                    {
+                        transformedValue = value.ToLowerInvariant();
+                    }
+
+                    if (uniqueTransformedValues.Add(transformedValue))
+                    {
+                        originalValueExamples[transformedValue] = value;
+                    }
+                }
+
+                ValuesCountTextBlock.Text = $"{scanResult.UniqueValues.Count} ערכים במקור, {uniqueTransformedValues.Count} ערכים ייחודיים אחרי טרנספורמציה";
+                ValuesCountTextBlock.Text += $", {scanResult.TotalRows} שורות סה\"כ";
+
+                if (hasUppercase || hasLowercase)
+                {
+                    var transformType = hasUppercase ? "אותיות גדולות" : "אותיות קטנות";
+                    ValuesCountTextBlock.Text += $"\n(מוצג לאחר המרה ל{transformType})";
+                    
+                    int reduction = scanResult.UniqueValues.Count - uniqueTransformedValues.Count;
+                    if (reduction > 0)
+                    {
+                        ValuesCountTextBlock.Text += $"\n⚠️ שים לב: {reduction} ערכים אוחדו בגלל ההמרה";
+                    }
+                }
+
                 MappingValues.Clear();
                 int counter = 0;
 
-                foreach (var value in scanResult.UniqueValues)
+                foreach (var transformedValue in uniqueTransformedValues.OrderBy(v => v))
                 {
+                    var originalExample = originalValueExamples[transformedValue];
+                    
                     var mappingValue = new MappingValue
                     {
-                        OriginalValue = value,
+                        OriginalValue = transformedValue,
                         EncodedValue = counter.ToString(),
-                        IsSpecialValue = value == "NULL" || value == "EMPTY"
+                        IsSpecialValue = originalExample == "NULL" || originalExample == "EMPTY"
                     };
 
                     MappingValues.Add(mappingValue);
                     counter++;
                 }
 
-                // הגדרת שם שדה ברירת מחדל
                 NewFieldNameTextBox.Text = $"{_fieldName}_encoded";
 
                 UpdateLoadingStatus("הטעינה הושלמה בהצלחה!", isCompleted: true);
@@ -137,7 +173,6 @@ namespace PipeWiseClient.Windows
 
         private bool ValidateInput()
         {
-            // בדיקת שם שדה חדש
             if (CreateNewFieldRadio.IsChecked == true)
             {
                 if (string.IsNullOrWhiteSpace(NewFieldNameTextBox.Text))
@@ -155,7 +190,6 @@ namespace PipeWiseClient.Windows
                 }
             }
 
-            // בדיקת הערכים הקטגוריאליים
             var encodedValues = new HashSet<string>();
             var invalidValues = new List<string>();
 
@@ -163,31 +197,27 @@ namespace PipeWiseClient.Windows
             {
                 var encodedValue = mapping.EncodedValue?.Trim();
 
-                // בדיקה שהערך אינו ריק
                 if (string.IsNullOrWhiteSpace(encodedValue))
                 {
                     ShowError($"יש להזין ערך קטגוריאלי עבור '{mapping.OriginalValue}'");
                     return false;
                 }
 
-                // בדיקה שהערך הוא מספר
                 if (!int.TryParse(encodedValue, out _))
                 {
                     invalidValues.Add(mapping.OriginalValue);
                     continue;
                 }
 
-                // בדיקת כפילויות
-                if (encodedValues.Contains(encodedValue))
-                {
-                    ShowError($"הערך '{encodedValue}' מופיע יותר מפעם אחת");
-                    return false;
-                }
+                // if (encodedValues.Contains(encodedValue))
+                // {
+                //     ShowError($"הערך '{encodedValue}' מופיע יותר מפעם אחת");
+                //     return false;
+                // }
 
                 encodedValues.Add(encodedValue);
             }
 
-            // הודעה על ערכים לא תקינים
             if (invalidValues.Count > 0)
             {
                 ShowError($"הערכים הבאים אינם מספרים תקינים: {string.Join(", ", invalidValues)}");
@@ -244,7 +274,6 @@ namespace PipeWiseClient.Windows
             {
                 FieldInfoTextBlock.Text = message;
 
-                // שינוי צבע למסר השלמה
                 FieldInfoTextBlock.Foreground = isCompleted ? SuccessBrush : NormalBrush;
             }
         }
@@ -252,7 +281,6 @@ namespace PipeWiseClient.Windows
         private void HideLoading()
         {
             OkButton.IsEnabled = true;
-            // החזרת צבע רגיל
             if (FieldInfoTextBlock != null)
             {
                 FieldInfoTextBlock.Foreground = NormalBrush;
@@ -260,10 +288,6 @@ namespace PipeWiseClient.Windows
         }
     }
 
-    // שאר המחלקות נשארות זהות...
-    /// <summary>
-    /// מחלקה לייצוג שורה ברשימת המיפוי
-    /// </summary>
     public class MappingValue : INotifyPropertyChanged
     {
         private string _originalValue = string.Empty;
@@ -306,9 +330,6 @@ namespace PipeWiseClient.Windows
         }
     }
 
-    /// <summary>
-    /// מחלקה לייצוג הגדרות קידוד קטגוריאלי
-    /// </summary>
     public class CategoricalEncodingConfig
     {
         public string Field { get; set; } = string.Empty;
@@ -319,9 +340,6 @@ namespace PipeWiseClient.Windows
         public int DefaultValue { get; set; } = -1;
     }
 
-    /// <summary>
-    /// Converter להמרת boolean ל-FontWeight עבור ערכים מיוחדים
-    /// </summary>
     public class BoolToFontWeightConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
