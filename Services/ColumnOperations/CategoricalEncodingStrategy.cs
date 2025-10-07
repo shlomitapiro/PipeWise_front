@@ -28,7 +28,7 @@ namespace PipeWiseClient.Services.ColumnOperations
             var fp = filePath?.Trim();
             if (string.IsNullOrWhiteSpace(fp) || !System.IO.File.Exists(fp))
                 return false;
-            var dlg = _dialogs.CreateCategoricalEncodingWindow(_api, fp!, columnName);
+            var dlg = _dialogs.CreateCategoricalEncodingWindow(_api, fp!, columnName, settings);
             if (dlg.ShowDialog() == true && dlg.Result != null)
             {
                 settings.CategoricalEncoding = new PipeWiseClient.Models.CategoricalEncodingConfig
